@@ -16,6 +16,7 @@ from prompt_toolkit.completion import Completer, Completion, ThreadedCompleter
 from prompt_toolkit.cursor_shapes import ModalCursorShapeConfig
 from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.filters import Condition, is_searching
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
@@ -431,6 +432,13 @@ class InputOutput:
                 completion_menu_current_style
             )
 
+        # Add bottom toolbar styling for text field appearance
+        style_dict["bottom-toolbar"] = "#888888 bg:#2e2e2e"
+        style_dict["bottom-toolbar.text"] = "#ffffff bg:#2e2e2e"
+
+        # Add prompt styling
+        style_dict["prompt"] = "bold #00aaff"
+
         return Style.from_dict(style_dict)
 
     def read_image(self, filename):
@@ -551,7 +559,14 @@ class InputOutput:
             prompt_prefix += (" " if edit_format else "") + "[multi-line]"
         prompt_prefix += "> "
 
-        show += prompt_prefix
+        # Add a top border for text field appearance
+        if show:
+            # If there are files listed, add border after them
+            show += "─" * 80 + "\n" + prompt_prefix
+        else:
+            # No files, just add border before prompt
+            show = "─" * 80 + "\n" + prompt_prefix
+
         self.prompt_prefix = prompt_prefix
 
         inp = ""
@@ -691,6 +706,29 @@ class InputOutput:
                             return "... "
                         return self.prompt_prefix
 
+                    def get_bottom_toolbar():
+                        """Generate a bottom toolbar with keyboard shortcuts and border effect"""
+                        if self.multiline_mode:
+                            # Show shortcuts for multiline mode
+                            toolbar_text = (
+                                "─" * 80 + "\n"
+                                "  <b>Multi-line mode</b>  │  "
+                                "<u>Enter</u>: new line  │  "
+                                "<u>Alt-Enter</u>: submit  │  "
+                                "<u>Ctrl-X Ctrl-E</u>: edit in $EDITOR  │  "
+                                "<u>/multiline</u>: toggle mode"
+                            )
+                        else:
+                            # Show shortcuts for normal mode
+                            toolbar_text = (
+                                "─" * 80 + "\n"
+                                "  <u>Enter</u>: submit  │  "
+                                "<u>Alt-Enter</u>: new line  │  "
+                                "<u>Ctrl-X Ctrl-E</u>: edit in $EDITOR  │  "
+                                "<u>Tab</u>: autocomplete"
+                            )
+                        return HTML(toolbar_text)
+
                     line = self.prompt_session.prompt(
                         show,
                         default=default,
@@ -701,6 +739,7 @@ class InputOutput:
                         key_bindings=kb,
                         complete_while_typing=True,
                         prompt_continuation=get_continuation,
+                        bottom_toolbar=get_bottom_toolbar,
                     )
                 else:
                     line = input(show)
