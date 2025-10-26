@@ -267,6 +267,7 @@ class InputOutput:
         self.placeholder = None
         self.interrupted = False
         self.never_prompts = set()
+        self.always_yes_prompts = set()
         self.editingmode = editingmode
         self.multiline_mode = multiline_mode
         self.bell_on_next_input = False
@@ -812,6 +813,7 @@ class InputOutput:
         explicit_yes_required=False,
         group=None,
         allow_never=False,
+        allow_always=False,
     ):
         self.num_user_asks += 1
 
@@ -822,6 +824,9 @@ class InputOutput:
 
         if question_id in self.never_prompts:
             return False
+
+        if question_id in self.always_yes_prompts:
+            return True
 
         if group and not group.show_group:
             group = None
@@ -834,6 +839,9 @@ class InputOutput:
             if not explicit_yes_required:
                 options += "/(A)ll"
             options += "/(S)kip all"
+        if allow_always:
+            options += "/(I)nclude always"
+            valid_responses.append("include")
         if allow_never:
             options += "/(D)on't ask again"
             valid_responses.append("don't")
@@ -904,6 +912,12 @@ class InputOutput:
             hist = f"{question.strip()} {res}"
             self.append_chat_history(hist, linebreak=True, blockquote=True)
             return False
+
+        if res == "i" and allow_always:
+            self.always_yes_prompts.add(question_id)
+            hist = f"{question.strip()} {res}"
+            self.append_chat_history(hist, linebreak=True, blockquote=True)
+            return True
 
         if explicit_yes_required:
             is_yes = res == "y"

@@ -422,6 +422,9 @@
 ## Enable/disable suggesting shell commands (default: True)
 #suggest-shell-commands: true
 
+## Always add shell command output to the chat without asking (default: False)
+#always-add-shell-output: false
+
 ## Enable/disable fancy input with history and completion (default: True)
 #fancy-input: true
 

@@ -1018,7 +1018,8 @@ class Commands:
         else:
             # Check if we should always add output or prompt the user
             add = self.coder.always_add_shell_output or self.io.confirm_ask(
-                f"Add {k_tokens:.1f}k tokens of command output to the chat?"
+                f"Add {k_tokens:.1f}k tokens of command output to the chat?",
+                allow_always=True,
             )
 
         if add:
@@ -1413,6 +1414,14 @@ class Commands:
         repo_map = self.coder.get_repo_map(force_refresh=True)
         if repo_map:
             self.io.tool_output("The repo map has been refreshed, use /map to view it.")
+
+    def cmd_shell_output(self, args):
+        "Toggle automatic inclusion of shell command output in chat"
+        self.coder.always_add_shell_output = not self.coder.always_add_shell_output
+        status = "enabled" if self.coder.always_add_shell_output else "disabled"
+        self.io.tool_output(
+            f"Automatic inclusion of shell command output is now {status}."
+        )
 
     def cmd_settings(self, args):
         "Print out the current settings"

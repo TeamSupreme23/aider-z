@@ -2481,7 +2481,9 @@ class Coder:
         if accumulated_output.strip():
             # Check if we should always add output or prompt the user
             should_add = self.always_add_shell_output or self.io.confirm_ask(
-                "Add command output to the chat?", allow_never=True
+                "Add command output to the chat?",
+                allow_never=True,
+                allow_always=True,
             )
             if should_add:
                 num_lines = len(accumulated_output.strip().splitlines())
