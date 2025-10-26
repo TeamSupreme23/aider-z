@@ -12,14 +12,20 @@ from datetime import datetime
 from io import StringIO
 from pathlib import Path
 
+from prompt_toolkit.application import Application
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completer, Completion, ThreadedCompleter
 from prompt_toolkit.cursor_shapes import ModalCursorShapeConfig
+from prompt_toolkit.document import Document
 from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.filters import Condition, is_searching
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.vi_state import InputMode
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout.containers import HSplit, Window
+from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.output.vt100 import is_dumb_terminal
 from prompt_toolkit.shortcuts import CompleteStyle, PromptSession
@@ -803,6 +809,86 @@ class InputOutput:
             return True
         return False
 
+    def _interactive_menu_select(self, question, options, default_index=0):
+        """
+        Display an interactive menu with arrow key navigation.
+
+        Args:
+            question: The question to display
+            options: List of tuples (display_text, return_value)
+            default_index: Index of the default option
+
+        Returns:
+            The return_value of the selected option
+        """
+        if not self.prompt_session or self.is_dumb_terminal:
+            # Fallback to text input
+            return None
+
+        selected_index = default_index
+
+        def get_formatted_text():
+            result = [("", question + "\n")]
+            for i, (display, _) in enumerate(options):
+                if i == selected_index:
+                    result.append(("class:selected", f"  > {display}\n"))
+                else:
+                    result.append(("", f"    {display}\n"))
+            result.append(("", "\nUse ↑↓ arrows to navigate, Enter to select"))
+            return result
+
+        kb = KeyBindings()
+
+        @kb.add("up")
+        def move_up(event):
+            nonlocal selected_index
+            selected_index = (selected_index - 1) % len(options)
+
+        @kb.add("down")
+        def move_down(event):
+            nonlocal selected_index
+            selected_index = (selected_index + 1) % len(options)
+
+        @kb.add("enter")
+        def accept(event):
+            event.app.exit(result=options[selected_index][1])
+
+        @kb.add("c-c")
+        @kb.add("c-d")
+        def cancel(event):
+            event.app.exit(result=None)
+
+        # Create the application
+        text_control = FormattedTextControl(
+            text=get_formatted_text,
+            focusable=True,
+        )
+
+        window = Window(
+            content=text_control,
+            height=len(options) + 3,
+        )
+
+        layout = Layout(window)
+
+        style = Style.from_dict({
+            "selected": "reverse bold",
+        })
+
+        app = Application(
+            layout=layout,
+            key_bindings=kb,
+            style=style,
+            full_screen=False,
+            mouse_support=False,
+        )
+
+        try:
+            result = app.run()
+            return result
+        except (EOFError, KeyboardInterrupt):
+            return None
+
     @restore_multiline
     def confirm_ask(
         self,
@@ -828,23 +914,7 @@ class InputOutput:
         if group:
             allow_never = True
 
-        valid_responses = ["yes", "no", "skip", "all"]
-        options = " (Y)es/(N)o"
-        if group:
-            if not explicit_yes_required:
-                options += "/(A)ll"
-            options += "/(S)kip all"
-        if allow_never:
-            options += "/(D)on't ask again"
-            valid_responses.append("don't")
-
-        if default.lower().startswith("y"):
-            question += options + " [Yes]: "
-        elif default.lower().startswith("n"):
-            question += options + " [No]: "
-        else:
-            question += options + f" [{default}]: "
-
+        # Display subject if present
         if subject:
             self.tool_output()
             if "\n" in subject:
@@ -855,61 +925,103 @@ class InputOutput:
                 self.tool_output(padded_subject, bold=True)
             else:
                 self.tool_output(subject, bold=True)
+            self.tool_output()
 
-        style = self._get_style()
-
-        def is_valid_response(text):
-            if not text:
-                return True
-            return text.lower() in valid_responses
-
+        # Check for auto-yes/no settings
         if self.yes is True:
             res = "n" if explicit_yes_required else "y"
         elif self.yes is False:
             res = "n"
         elif group and group.preference:
             res = group.preference
-            self.user_input(f"{question}{res}", log_only=False)
+            self.user_input(f"{question} {res}", log_only=False)
         else:
-            while True:
-                try:
-                    if self.prompt_session:
-                        res = self.prompt_session.prompt(
-                            question,
-                            style=style,
-                            complete_while_typing=False,
-                        )
-                    else:
-                        res = input(question)
-                except EOFError:
-                    # Treat EOF (Ctrl+D) as if the user pressed Enter
-                    res = default
-                    break
+            # Build menu options
+            menu_options = []
+            default_index = 0
 
-                if not res:
-                    res = default
-                    break
-                res = res.lower()
-                good = any(valid_response.startswith(res) for valid_response in valid_responses)
-                if good:
-                    break
+            # Always have Yes and No
+            menu_options.append(("Yes", "y"))
+            menu_options.append(("No", "n"))
 
-                error_message = f"Please answer with one of: {', '.join(valid_responses)}"
-                self.tool_error(error_message)
+            # Set default based on parameter
+            if default.lower().startswith("n"):
+                default_index = 1
 
-        res = res.lower()[0]
+            # Add group-specific options
+            if group:
+                if not explicit_yes_required:
+                    menu_options.append(("All", "a"))
+                menu_options.append(("Skip all", "s"))
 
+            if allow_never:
+                menu_options.append(("Don't ask again", "d"))
+
+            # Try interactive menu first
+            res = self._interactive_menu_select(question, menu_options, default_index)
+
+            # Fallback to text input if interactive menu fails
+            if res is None:
+                valid_responses = ["yes", "no", "skip", "all"]
+                options = " (Y)es/(N)o"
+                if group:
+                    if not explicit_yes_required:
+                        options += "/(A)ll"
+                    options += "/(S)kip all"
+                if allow_never:
+                    options += "/(D)on't ask again"
+                    valid_responses.append("don't")
+
+                if default.lower().startswith("y"):
+                    question_text = question + options + " [Yes]: "
+                elif default.lower().startswith("n"):
+                    question_text = question + options + " [No]: "
+                else:
+                    question_text = question + options + f" [{default}]: "
+
+                style = self._get_style()
+
+                while True:
+                    try:
+                        if self.prompt_session:
+                            res = self.prompt_session.prompt(
+                                question_text,
+                                style=style,
+                                complete_while_typing=False,
+                            )
+                        else:
+                            res = input(question_text)
+                    except EOFError:
+                        res = default
+                        break
+
+                    if not res:
+                        res = default
+                        break
+                    res = res.lower()
+                    good = any(valid_response.startswith(res) for valid_response in valid_responses)
+                    if good:
+                        break
+
+                    error_message = f"Please answer with one of: {', '.join(valid_responses)}"
+                    self.tool_error(error_message)
+
+                res = res.lower()[0]
+
+        # Handle "don't ask again"
         if res == "d" and allow_never:
             self.never_prompts.add(question_id)
             hist = f"{question.strip()} {res}"
             self.append_chat_history(hist, linebreak=True, blockquote=True)
             return False
 
+        # Determine if this is a yes response
         if explicit_yes_required:
             is_yes = res == "y"
         else:
             is_yes = res in ("y", "a")
 
+        # Update group preferences
         is_all = res == "a" and group is not None and not explicit_yes_required
         is_skip = res == "s" and group is not None
 
