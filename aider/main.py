@@ -998,6 +998,7 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
             map_mul_no_files=args.map_multiplier_no_files,
             num_cache_warming_pings=args.cache_keepalive_pings,
             suggest_shell_commands=args.suggest_shell_commands,
+            always_add_shell_output=args.always_add_shell_output,
             chat_language=args.chat_language,
             commit_language=args.commit_language,
             detect_urls=args.detect_urls,

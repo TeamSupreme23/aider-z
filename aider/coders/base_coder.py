@@ -329,6 +329,7 @@ class Coder:
         cache_prompts=False,
         num_cache_warming_pings=0,
         suggest_shell_commands=True,
+        always_add_shell_output=False,
         chat_language=None,
         commit_language=None,
         detect_urls=True,
@@ -362,6 +363,7 @@ class Coder:
             self.file_watcher.coder = self
 
         self.suggest_shell_commands = suggest_shell_commands
+        self.always_add_shell_output = always_add_shell_output
         self.detect_urls = detect_urls
 
         self.num_cache_warming_pings = num_cache_warming_pings
@@ -2476,10 +2478,13 @@ class Coder:
             if output:
                 accumulated_output += f"Output from {command}\n{output}\n"
 
-        if accumulated_output.strip() and self.io.confirm_ask(
-            "Add command output to the chat?", allow_never=True
-        ):
-            num_lines = len(accumulated_output.strip().splitlines())
-            line_plural = "line" if num_lines == 1 else "lines"
-            self.io.tool_output(f"Added {num_lines} {line_plural} of output to the chat.")
-            return accumulated_output
+        if accumulated_output.strip():
+            # Check if we should always add output or prompt the user
+            should_add = self.always_add_shell_output or self.io.confirm_ask(
+                "Add command output to the chat?", allow_never=True
+            )
+            if should_add:
+                num_lines = len(accumulated_output.strip().splitlines())
+                line_plural = "line" if num_lines == 1 else "lines"
+                self.io.tool_output(f"Added {num_lines} {line_plural} of output to the chat.")
+                return accumulated_output
