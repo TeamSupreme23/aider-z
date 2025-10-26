@@ -18,6 +18,7 @@ from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.filters import Condition, is_searching
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
 from prompt_toolkit.key_binding.vi_state import InputMode
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.lexers import PygmentsLexer
@@ -546,7 +547,8 @@ class InputOutput:
         if edit_format:
             prompt_prefix += edit_format
         if self.multiline_mode:
-            prompt_prefix += (" " if edit_format else "") + "multi"
+            # More visible multiline indicator
+            prompt_prefix += (" " if edit_format else "") + "[multi-line]"
         prompt_prefix += "> "
 
         show += prompt_prefix
@@ -609,6 +611,38 @@ class InputOutput:
             # Move cursor to the end of the text
             buffer.cursor_position = len(buffer.text)
 
+        # Handle bracketed paste - when multi-line content is pasted
+        def handle_paste(event):
+            """Handle paste events, especially multi-line pastes"""
+            # Get the pasted data from the event
+            data = event.data
+
+            # Check if this is multi-line content
+            if "\n" in data:
+                # Multi-line paste detected
+                buffer = event.current_buffer
+
+                # If we're not in multiline mode, enable it
+                if not self.multiline_mode:
+                    self.multiline_mode = True
+                    # Show a brief message about entering multiline mode
+                    self.tool_output(
+                        "Multi-line paste detected. Multiline mode enabled. "
+                        "Press Alt-Enter to submit, or /multiline to toggle mode."
+                    )
+
+                # Insert the pasted content
+                buffer.insert_text(data)
+            else:
+                # Single-line paste, just insert normally
+                event.current_buffer.insert_text(data)
+
+        # Register the bracketed paste handler
+        @kb.add(Keys.BracketedPaste)
+        def _(event):
+            "Handle bracketed paste events"
+            handle_paste(event)
+
         @kb.add("enter", eager=True, filter=~is_searching)
         def _(event):
             "Handle Enter key press"
@@ -651,6 +685,10 @@ class InputOutput:
                             self.clipboard_watcher.start()
 
                     def get_continuation(width, line_number, is_soft_wrap):
+                        # Show a clearer continuation indicator in multiline mode
+                        if self.multiline_mode:
+                            # Use '... ' for continuation lines in multiline mode
+                            return "... "
                         return self.prompt_prefix
 
                     line = self.prompt_session.prompt(
