@@ -1623,7 +1623,45 @@ class Coder:
                     return
 
     def reply_completed(self):
-        pass
+        """Check if LLM requested files and add them if needed.
+
+        Returns False if reflection is needed (files were added), True otherwise.
+        """
+        if not self.partial_response_content:
+            return True
+
+        # Parse REQUEST_FILE commands from the response
+        requested_files = self.parse_file_requests(self.partial_response_content)
+
+        if not requested_files:
+            return True
+
+        # Check if we've hit the max reflection limit
+        if self.num_reflections >= self.max_reflections - 1:
+            self.io.tool_warning(
+                f"Maximum reflections ({self.max_reflections}) reached."
+                f" Cannot add requested files: {', '.join(requested_files)}"
+            )
+            return True
+
+        # Get files that aren't already in chat
+        current_files = set(self.get_inchat_relative_files())
+        new_files = requested_files - current_files
+
+        if not new_files:
+            return True
+
+        # Add the requested files
+        for fname in new_files:
+            self.add_rel_fname(fname)
+
+        self.io.tool_output(f"Adding requested files: {', '.join(new_files)}")
+
+        # Set a message to acknowledge the file addition
+        self.reflected_message = f"I have added the requested files to the chat: {', '.join(new_files)}. Please proceed with your analysis or edits."
+
+        # Return False to trigger a reflection loop
+        return False
 
     def show_exhausted_error(self):
         output_tokens = 0
@@ -1757,6 +1795,40 @@ class Coder:
                 mentioned_rel_fnames.add(rel_fnames[0])
 
         return mentioned_rel_fnames
+
+    def parse_file_requests(self, content):
+        """Parse REQUEST_FILE commands from LLM response.
+
+        Returns a set of relative file paths that were explicitly requested.
+        """
+        if not content:
+            return set()
+
+        pattern = r'^REQUEST_FILE:\s*(.+)$'
+        requests = re.findall(pattern, content, re.MULTILINE)
+
+        requested_files = set()
+        all_relative_files = self.get_all_relative_files()
+
+        for requested_path in requests:
+            # Clean up the path
+            requested_path = requested_path.strip()
+
+            # Normalize path separators
+            requested_path = requested_path.replace("\\", "/")
+
+            # Check if this file exists in the repository
+            if requested_path in all_relative_files:
+                requested_files.add(requested_path)
+            else:
+                # Try to find a fuzzy match
+                for rel_file in all_relative_files:
+                    normalized_rel_file = rel_file.replace("\\", "/")
+                    if normalized_rel_file.endswith(requested_path) or requested_path in normalized_rel_file:
+                        requested_files.add(rel_file)
+                        break
+
+        return requested_files
 
     def check_for_file_mentions(self, content):
         mentioned_rel_fnames = self.get_file_mentions(content)

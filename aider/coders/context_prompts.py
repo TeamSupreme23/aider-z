@@ -60,7 +60,12 @@ Other messages in the chat may contain outdated versions of the files' contents.
 
     repo_content_prefix = """I am working with you on code in a git repository.
 Here are summaries of some files present in my git repo.
-If you need to see the full contents of any files to answer my questions, ask me to *add them to the chat*.
+If you need to see the full contents of any files to answer my questions, use this syntax:
+
+REQUEST_FILE: path/to/file.py
+REQUEST_FILE: another/file.js
+
+I will add them to the chat and provide you with their full contents.
 """
 
     system_reminder = """

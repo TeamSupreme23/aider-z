@@ -44,7 +44,12 @@ Don't include files that might contain relevant context, just files that will ne
 
     repo_content_prefix = """Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
-If you need to edit any of these files, ask me to *add them to the chat* first.
+If you need to edit any of these files, use this syntax to request them:
+
+REQUEST_FILE: path/to/file.py
+REQUEST_FILE: another/file.js
+
+I will add them to the chat so you can edit them.
 """
 
     read_only_files_prefix = """Here are some READ ONLY files, provided for your reference.

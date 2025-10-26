@@ -25,20 +25,26 @@ class ContextCoder(Coder):
 
         # dump(repr(content))
         current_rel_fnames = set(self.get_inchat_relative_files())
+
+        # Check for both explicit REQUEST_FILE commands and implicit file mentions
+        requested_rel_fnames = set(self.parse_file_requests(content))
         mentioned_rel_fnames = set(self.get_file_mentions(content, ignore_current=True))
 
-        # dump(current_rel_fnames)
-        # dump(mentioned_rel_fnames)
-        # dump(current_rel_fnames == mentioned_rel_fnames)
+        # Combine both sources of file information
+        all_requested_fnames = requested_rel_fnames | mentioned_rel_fnames
 
-        if mentioned_rel_fnames == current_rel_fnames:
+        # dump(current_rel_fnames)
+        # dump(all_requested_fnames)
+        # dump(current_rel_fnames == all_requested_fnames)
+
+        if all_requested_fnames == current_rel_fnames:
             return True
 
         if self.num_reflections >= self.max_reflections - 1:
             return True
 
         self.abs_fnames = set()
-        for fname in mentioned_rel_fnames:
+        for fname in all_requested_fnames:
             self.add_rel_fname(fname)
         # dump(self.get_inchat_relative_files())
 
