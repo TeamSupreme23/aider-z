@@ -1661,6 +1661,133 @@ Just show me the edits I need to make.
         except Exception as e:
             self.io.tool_error(f"An unexpected error occurred while copying to clipboard: {str(e)}")
 
+    def cmd_ui_theme(self, args):
+        "Interactively select and apply a color theme"
+        from aider.themes import DARK_THEMES, LIGHT_THEMES, Theme
+        from prompt_toolkit.shortcuts import radiolist_dialog
+        import os
+        import yaml
+
+        # If args provided, try to apply that theme directly
+        if args.strip():
+            theme_name = args.strip()
+            from aider.themes import get_theme
+
+            theme = get_theme(theme_name)
+            if not theme:
+                self.io.tool_error(f"Theme '{theme_name}' not found.")
+                self.io.tool_output("\nAvailable themes:")
+                for category, themes in [("Dark", DARK_THEMES), ("Light", LIGHT_THEMES)]:
+                    self.io.tool_output(f"\n{category} themes:")
+                    for t in themes:
+                        self.io.tool_output(f"  - {t.name}")
+                return
+
+            self._apply_theme(theme)
+            return
+
+        # Build the list of themes for the dialog
+        theme_choices = []
+
+        # Add dark themes
+        theme_choices.append(("", "=== Dark Themes ==="))
+        for theme in DARK_THEMES:
+            theme_choices.append((theme, f"{theme.name} - {theme.description}"))
+
+        # Add separator
+        theme_choices.append(("", ""))
+        theme_choices.append(("", "=== Light Themes ==="))
+
+        # Add light themes
+        for theme in LIGHT_THEMES:
+            theme_choices.append((theme, f"{theme.name} - {theme.description}"))
+
+        # Show the dialog
+        try:
+            result = radiolist_dialog(
+                title="Select a Color Theme",
+                text="Choose a theme to apply (arrows to navigate, Space to select, Enter to confirm):",
+                values=theme_choices,
+            ).run()
+
+            if result:
+                self._apply_theme(result)
+
+        except Exception as e:
+            self.io.tool_error(f"Error showing theme selector: {e}")
+
+    def _apply_theme(self, theme):
+        """Apply a theme to the current session and save to config."""
+        from aider.themes import Theme
+
+        # Apply theme to current session
+        self.io.user_input_color = theme.user_input_color
+        self.io.assistant_output_color = theme.assistant_output_color
+        self.io.tool_output_color = theme.tool_output_color
+        self.io.tool_error_color = theme.tool_error_color
+        self.io.tool_warning_color = theme.tool_warning_color
+        self.io.code_theme = theme.code_theme
+
+        # Show preview
+        self.io.tool_output(f"\nApplied theme: {theme.name}")
+        self.io.tool_output(f"Description: {theme.description}\n")
+
+        # Show color preview
+        self.io.tool_output("Color preview:")
+        from rich.console import Console
+        from rich.text import Text
+
+        console = Console()
+        console.print(Text("  User input", style=theme.user_input_color))
+        console.print(Text("  Assistant output", style=theme.assistant_output_color))
+        if theme.tool_output_color:
+            console.print(Text("  Tool output", style=theme.tool_output_color))
+        console.print(Text("  Error messages", style=theme.tool_error_color))
+        console.print(Text("  Warning messages", style=theme.tool_warning_color))
+
+        # Ask if user wants to save to config
+        if self.io.confirm_ask("\nSave this theme to ~/.aider.conf.yml?", default="y"):
+            self._save_theme_to_config(theme)
+
+    def _save_theme_to_config(self, theme):
+        """Save theme settings to ~/.aider.conf.yml"""
+        import os
+        import yaml
+        from pathlib import Path
+
+        config_path = Path.home() / ".aider.conf.yml"
+
+        # Load existing config or create new one
+        config = {}
+        if config_path.exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = yaml.safe_load(f) or {}
+            except Exception as e:
+                self.io.tool_error(f"Error reading config file: {e}")
+                return
+
+        # Update color settings
+        config["user-input-color"] = theme.user_input_color
+        config["assistant-output-color"] = theme.assistant_output_color
+        config["tool-output-color"] = theme.tool_output_color
+        config["tool-error-color"] = theme.tool_error_color
+        config["tool-warning-color"] = theme.tool_warning_color
+        config["code-theme"] = theme.code_theme
+
+        # Remove dark-mode and light-mode if present (they would override our settings)
+        config.pop("dark-mode", None)
+        config.pop("light-mode", None)
+
+        # Save config
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            self.io.tool_output(f"Theme saved to {config_path}")
+            self.io.tool_output("The theme will be applied automatically on next aider launch.")
+        except Exception as e:
+            self.io.tool_error(f"Error saving config file: {e}")
+
 
 def expand_subdir(file_path):
     if file_path.is_file():
