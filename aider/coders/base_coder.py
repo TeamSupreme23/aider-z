@@ -1758,6 +1758,37 @@ class Coder:
 
         return mentioned_rel_fnames
 
+    def get_nonexistent_file_mentions(self, content):
+        """Detect file paths mentioned by LLM that don't exist in the project."""
+        words = set(word for word in content.split())
+
+        # drop sentence punctuation from the end
+        words = set(word.rstrip(",.!;:?") for word in words)
+
+        # strip away all kinds of quotes
+        quotes = "\"'`*_"
+        words = set(word.strip(quotes) for word in words)
+
+        nonexistent_files = set()
+
+        # Get all existing files in the repo
+        existing_files = set(self.get_all_relative_files())
+
+        # Get files already in chat
+        inchat_files = set(self.get_inchat_relative_files())
+
+        for word in words:
+            # Look for file-like patterns (containing path separators or extensions)
+            if ("/" in word or "\\" in word or "." in word) and not word.startswith("."):
+                normalized_word = word.replace("\\", "/")
+                # Check if it looks like a file but doesn't exist
+                if normalized_word not in existing_files and normalized_word not in inchat_files:
+                    # Additional check: has a file extension
+                    if "." in os.path.basename(normalized_word):
+                        nonexistent_files.add(normalized_word)
+
+        return nonexistent_files
+
     def check_for_file_mentions(self, content):
         mentioned_rel_fnames = self.get_file_mentions(content)
 
@@ -1767,18 +1798,28 @@ class Coder:
             return
 
         added_fnames = []
-        group = ConfirmGroup(new_mentions)
+        # Automatically add all mentioned files without confirmation
         for rel_fname in sorted(new_mentions):
-            if self.io.confirm_ask(
-                "Add file to the chat?", subject=rel_fname, group=group, allow_never=True
-            ):
-                self.add_rel_fname(rel_fname)
-                added_fnames.append(rel_fname)
-            else:
-                self.ignore_mentions.add(rel_fname)
+            self.add_rel_fname(rel_fname)
+            added_fnames.append(rel_fname)
+            # Show user feedback in the chat
+            self.io.tool_output(f"Auto-added {rel_fname} to the chat")
+
+        # Check for non-existent files mentioned by the LLM
+        nonexistent_files = self.get_nonexistent_file_mentions(content)
+
+        # Show warning for non-existent files in terminal
+        if nonexistent_files:
+            for fname in sorted(nonexistent_files):
+                self.io.tool_warning(f"File mentioned but does not exist: {fname}")
 
         if added_fnames:
-            return prompts.added_files.format(fnames=", ".join(added_fnames))
+            response = prompts.added_files.format(fnames=", ".join(added_fnames))
+            if nonexistent_files:
+                response += f"\n\nNote: The following files you mentioned do not exist in this project: {', '.join(sorted(nonexistent_files))}"
+            return response
+        elif nonexistent_files:
+            return f"Note: The following files you mentioned do not exist in this project: {', '.join(sorted(nonexistent_files))}"
 
     def send(self, messages, model=None, functions=None):
         self.got_reasoning_content = False
