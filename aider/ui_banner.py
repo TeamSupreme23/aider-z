@@ -106,7 +106,7 @@ def create_startup_banner(
     git_info: str = None,
     repo_map_info: str = None,
     console: Console = None,
-    accent_color: str = "#9d4edd"  # Purple
+    accent_color: str = "#9575cd"  # Darker purple
 ) -> None:
     """
     Display a Claude Code-style startup banner for Aider.
@@ -259,7 +259,7 @@ def create_simple_startup_banner(
     model: str = "Claude API",
     working_dir: str = ".",
     console: Console = None,
-    accent_color: str = "#9d4edd"
+    accent_color: str = "#9575cd"
 ) -> None:
     """
     Display a simpler startup banner (minimal style).
@@ -284,7 +284,7 @@ def create_simple_startup_banner(
     console.print()
 
 
-def display_quick_tips(console: Console = None, accent_color: str = "#9d4edd") -> None:
+def display_quick_tips(console: Console = None, accent_color: str = "#9575cd") -> None:
     """
     Display quick tips for getting started.
 

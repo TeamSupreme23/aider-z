@@ -327,28 +327,28 @@ def get_parser(default_config_files, git_root):
     )
     group.add_argument(
         "--user-input-color",
-        default="#00cc00",
-        help="Set the color for user input (default: #00cc00)",
+        default="#8ab4f8",
+        help="Set the color for user input (default: #8ab4f8 - soft blue)",
     )
     group.add_argument(
         "--tool-output-color",
-        default=None,
-        help="Set the color for tool output (default: None)",
+        default="#a8b5c0",
+        help="Set the color for tool output (default: #a8b5c0 - muted gray-blue)",
     )
     group.add_argument(
         "--tool-error-color",
-        default="#FF2222",
-        help="Set the color for tool error messages (default: #FF2222)",
+        default="#f28b82",
+        help="Set the color for tool error messages (default: #f28b82 - soft red)",
     )
     group.add_argument(
         "--tool-warning-color",
-        default="#FFA500",
-        help="Set the color for tool warning messages (default: #FFA500)",
+        default="#fdd663",
+        help="Set the color for tool warning messages (default: #fdd663 - soft amber)",
     )
     group.add_argument(
         "--assistant-output-color",
-        default="#0088ff",
-        help="Set the color for assistant output (default: #0088ff)",
+        default="#81c995",
+        help="Set the color for assistant output (default: #81c995 - soft green)",
     )
     group.add_argument(
         "--completion-menu-color",
