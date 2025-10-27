@@ -34,6 +34,7 @@ from aider.models import ModelSettings
 from aider.onboarding import offer_openrouter_oauth, select_default_model
 from aider.repo import ANY_GIT_ERROR, GitRepo
 from aider.report import report_uncaught_exceptions
+from aider.ui_banner import create_startup_banner
 from aider.versioncheck import check_version, install_from_main_branch, install_upgrade
 from aider.watch import FileWatcher
 
@@ -1014,6 +1015,40 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         io.tool_error(str(err))
         analytics.event("exit", reason="ValueError during coder creation")
         return 1
+
+    # Clear terminal before showing banner
+    try:
+        os.system("clear" if os.name == "posix" else "cls")
+    except Exception:
+        pass
+
+    # Display startup banner with system information
+    try:
+        if io.pretty:
+            # Prepare banner info
+            git_info = None
+            if repo and not repo.git_repo_error:
+                tracked_files = len(repo.get_tracked_files())
+                git_info = f".git with {tracked_files} files"
+
+            repo_map_info = None
+            if repo:
+                repo_map_info = f"using {args.map_tokens or map_tokens} tokens, files refresh"
+
+            create_startup_banner(
+                version=__version__,
+                model=main_model.name,
+                weak_model=main_model.weak_model.name if main_model.weak_model else None,
+                edit_format=args.edit_format,
+                git_info=git_info,
+                repo_map_info=repo_map_info,
+                console=io.console,
+                accent_color="#9d4edd"
+            )
+    except Exception as err:
+        # If banner fails, just continue without it
+        if args.verbose:
+            io.tool_warning(f"Failed to display banner: {err}")
 
     if return_coder:
         analytics.event("exit", reason="Returning coder object")

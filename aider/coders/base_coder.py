@@ -206,77 +206,30 @@ class Coder:
 
     def get_announcements(self):
         lines = []
-        lines.append(f"Aider v{__version__}")
+        # Version, model info, git repo, and repo-map are now shown in the startup banner
+        # Only keep warnings and special messages here
 
-        # Model
         main_model = self.main_model
-        weak_model = main_model.weak_model
 
-        if weak_model is not main_model:
-            prefix = "Main model"
-        else:
-            prefix = "Model"
-
-        output = f"{prefix}: {main_model.name} with {self.edit_format} edit format"
-
-        # Check for thinking token budget
-        thinking_tokens = main_model.get_thinking_tokens()
-        if thinking_tokens:
-            output += f", {thinking_tokens} think tokens"
-
-        # Check for reasoning effort
-        reasoning_effort = main_model.get_reasoning_effort()
-        if reasoning_effort:
-            output += f", reasoning {reasoning_effort}"
-
-        if self.add_cache_headers or main_model.caches_by_default:
-            output += ", prompt cache"
-        if main_model.info.get("supports_assistant_prefill"):
-            output += ", infinite output"
-
-        lines.append(output)
-
-        if self.edit_format == "architect":
-            output = (
-                f"Editor model: {main_model.editor_model.name} with"
-                f" {main_model.editor_edit_format} edit format"
-            )
-            lines.append(output)
-
-        if weak_model is not main_model:
-            output = f"Weak model: {weak_model.name}"
-            lines.append(output)
-
-        # Repo
+        # Keep large repo warning
         if self.repo:
-            rel_repo_dir = self.repo.get_rel_repo_dir()
             num_files = len(self.repo.get_tracked_files())
-
-            lines.append(f"Git repo: {rel_repo_dir} with {num_files:,} files")
             if num_files > 1000:
                 lines.append(
                     "Warning: For large repos, consider using --subtree-only and .aiderignore"
                 )
                 lines.append(f"See: {urls.large_repos}")
-        else:
-            lines.append("Git repo: none")
 
-        # Repo-map
+        # Keep repo-map warning
         if self.repo_map:
             map_tokens = self.repo_map.max_map_tokens
             if map_tokens > 0:
-                refresh = self.repo_map.refresh
-                lines.append(f"Repo-map: using {map_tokens} tokens, {refresh} refresh")
                 max_map_tokens = self.main_model.get_repo_map_tokens() * 2
                 if map_tokens > max_map_tokens:
                     lines.append(
                         f"Warning: map-tokens > {max_map_tokens} is not recommended. Too much"
                         " irrelevant code can confuse LLMs."
                     )
-            else:
-                lines.append("Repo-map: disabled because map_tokens == 0")
-        else:
-            lines.append("Repo-map: disabled")
 
         # Files
         for fname in self.get_inchat_relative_files():
