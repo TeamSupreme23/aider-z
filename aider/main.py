@@ -722,6 +722,8 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
 
     if args.just_check_update:
         update_available = check_version(io, just_check=True, verbose=args.verbose)
+        if update_available:
+            io.tool_output("A new version of Aider is available. Consider upgrading.")
         analytics.event("exit", reason="Just checking update")
         return 0 if not update_available else 1
 
