@@ -664,6 +664,10 @@ class InputOutput:
                         complete_while_typing=True,
                         prompt_continuation=get_continuation,
                     )
+
+                    # Print line immediately after input (before processing)
+                    if self.pretty and self.user_input_color:
+                        self.console.rule(style=self.user_input_color)
                 else:
                     line = input(show)
 
@@ -730,10 +734,6 @@ class InputOutput:
                 break
 
         print()
-        # Add a line underneath the prompt input
-        if self.pretty:
-            style = dict(style=self.user_input_color) if self.user_input_color else dict()
-            self.console.rule(**style)
         self.user_input(inp)
         return inp
 
