@@ -12,14 +12,19 @@ from datetime import datetime
 from io import StringIO
 from pathlib import Path
 
+from prompt_toolkit.application import Application
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completer, Completion, ThreadedCompleter
 from prompt_toolkit.cursor_shapes import ModalCursorShapeConfig
 from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.filters import Condition, is_searching
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.vi_state import InputMode
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout import HSplit, Window
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.output.vt100 import is_dumb_terminal
 from prompt_toolkit.shortcuts import CompleteStyle, PromptSession
@@ -653,21 +658,92 @@ class InputOutput:
                     def get_continuation(width, line_number, is_soft_wrap):
                         return self.prompt_prefix
 
-                    line = self.prompt_session.prompt(
-                        show,
-                        default=default,
-                        completer=completer_instance,
-                        reserve_space_for_menu=4,
-                        complete_style=CompleteStyle.MULTI_COLUMN,
-                        style=style,
-                        key_bindings=kb,
-                        complete_while_typing=True,
-                        prompt_continuation=get_continuation,
-                    )
+                    # Create a separator line that appears below the input
+                    def get_separator_line():
+                        try:
+                            width = self.console.width
+                        except:
+                            width = 80
+                        line_char = "─" * width
+                        if self.user_input_color:
+                            return FormattedText([(f"fg:{self.user_input_color}", line_char)])
+                        return line_char
 
-                    # Print line immediately after input (before processing)
-                    if self.pretty and self.user_input_color:
-                        self.console.rule(style=self.user_input_color)
+                    # Use custom Application with HSplit layout for separator line
+                    try:
+                        # Create a buffer for input (always multiline)
+                        input_buffer = Buffer(
+                            completer=completer_instance,
+                            complete_while_typing=True,
+                            multiline=True,
+                            accept_handler=lambda buff: None,  # Handled by key binding
+                        )
+
+                        if default:
+                            input_buffer.text = default
+
+                        # Create layout with HSplit (input on top, separator below)
+                        root_container = HSplit([
+                            Window(
+                                BufferControl(
+                                    buffer=input_buffer,
+                                    lexer=None,
+                                ),
+                                # Don't set fixed height - let it grow with content
+                            ),
+                            Window(
+                                FormattedTextControl(get_separator_line),
+                                height=1,
+                            ),
+                        ])
+
+                        # Create custom key bindings that include the original kb
+                        custom_kb = KeyBindings()
+
+                        # In multiline mode, Enter adds newline, Alt+Enter submits
+                        @custom_kb.add("escape", "enter")  # Alt+Enter
+                        def _(event):
+                            event.app.exit(result=input_buffer.text)
+
+                        @custom_kb.add("c-d")  # Ctrl+D also submits
+                        def _(event):
+                            if not input_buffer.text:
+                                # Empty input on Ctrl+D exits
+                                event.app.exit(result='')
+                            else:
+                                # With text, Ctrl+D submits
+                                event.app.exit(result=input_buffer.text)
+
+                        # Merge with existing key bindings
+                        merged_kb = KeyBindings()
+                        merged_kb._bindings = kb._bindings + custom_kb._bindings
+
+                        # Create and run the application
+                        app = Application(
+                            layout=root_container,
+                            key_bindings=merged_kb,
+                            style=style,
+                            editing_mode=self.editingmode,
+                            full_screen=False,
+                        )
+
+                        # Print the prompt text before running
+                        print(show, end='', flush=True)
+
+                        line = app.run()
+                    except Exception as e:
+                        # Fallback to original prompt_session if custom app fails
+                        line = self.prompt_session.prompt(
+                            show,
+                            default=default,
+                            completer=completer_instance,
+                            reserve_space_for_menu=4,
+                            complete_style=CompleteStyle.MULTI_COLUMN,
+                            style=style,
+                            key_bindings=kb,
+                            complete_while_typing=True,
+                            prompt_continuation=get_continuation,
+                        )
                 else:
                     line = input(show)
 
