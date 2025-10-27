@@ -19,6 +19,11 @@ class EditBlockCoder(Coder):
     gpt_prompts = EditBlockPrompts()
 
     def get_edits(self):
+        try:
+            from aider import debug_logger
+        except ImportError:
+            debug_logger = None
+
         content = self.partial_response_content
 
         # might raise ValueError for malformed ORIG/UPD blocks
@@ -30,7 +35,14 @@ class EditBlockCoder(Coder):
             )
         )
 
-        self.shell_commands += [edit[1] for edit in edits if edit[0] is None]
+        shell_commands = [edit[1] for edit in edits if edit[0] is None]
+        self.shell_commands += shell_commands
+
+        # Debug logging
+        if debug_logger:
+            debug_logger.info(f"get_edits called - response length: {len(content)}")
+            debug_logger.log_shell_commands(content, shell_commands)
+
         edits = [edit for edit in edits if edit[0] is not None]
 
         return edits
@@ -437,9 +449,15 @@ def strip_filename(filename, fence):
 
 
 def find_original_update_blocks(content, fence=DEFAULT_FENCE, valid_fnames=None):
+    try:
+        from aider import debug_logger
+    except ImportError:
+        debug_logger = None
+
     lines = content.splitlines(keepends=True)
     i = 0
     current_filename = None
+    shell_blocks_found = []
 
     head_pattern = re.compile(HEAD)
     divider_pattern = re.compile(DIVIDER)
@@ -481,7 +499,11 @@ def find_original_update_blocks(content, fence=DEFAULT_FENCE, valid_fnames=None)
             if i < len(lines) and lines[i].strip().startswith("```"):
                 i += 1  # Skip the closing ```
 
-            yield None, "".join(shell_content)
+            shell_cmd = "".join(shell_content)
+            shell_blocks_found.append(shell_cmd)
+            if debug_logger:
+                debug_logger.debug(f"Found shell block at line {i}: {repr(shell_cmd[:100])}")
+            yield None, shell_cmd
             continue
 
         # Check for SEARCH/REPLACE blocks

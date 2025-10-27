@@ -9,6 +9,8 @@ Take requests for changes to the supplied code.
 If the request is ambiguous, ask questions.
 
 Once you understand the request you MUST use the `replace_lines` function to edit the files to make the needed changes.
+
+{shell_cmd_prompt}
 """
 
     system_reminder = """

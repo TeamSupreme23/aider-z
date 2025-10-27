@@ -9,10 +9,6 @@ class EditorEditBlockPrompts(EditBlockPrompts):
 Describe each change with a *SEARCH/REPLACE block* per the examples below.
 All changes to files must use this *SEARCH/REPLACE block* format.
 ONLY EVER RETURN CODE IN A *SEARCH/REPLACE BLOCK*!
-"""
 
-    shell_cmd_prompt = ""
-    no_shell_cmd_prompt = ""
-    shell_cmd_reminder = ""
-    go_ahead_tip = ""
-    rename_with_shell = ""
+{shell_cmd_prompt}
+"""
