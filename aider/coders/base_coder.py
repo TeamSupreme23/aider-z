@@ -2157,79 +2157,79 @@ The MCP tools provide more current information than your training data. Use them
                         self.io.tool_output(f"  • {key}: {value}")
                 self.io.tool_output("")
 
-                # Show loading spinner while waiting for MCP tool result
+                # Show loading spinner for entire MCP tool processing
                 spinner = None
                 if self.show_pretty():
                     from aider.waiting import WaitingSpinner
-                    spinner = WaitingSpinner(f"Calling {tool_name}...")
+                    spinner = WaitingSpinner(f"Processing {tool_name}...")
                     spinner.start()
 
                 try:
                     # Execute tool via MCP client
                     result = self.mcp_client.call_tool(tool_name, arguments)
-                finally:
-                    # Stop spinner
-                    if spinner:
-                        spinner.stop()
 
-                # Format result for display and storage
-                result_text = ""
+                    # Format result for display and storage
+                    result_text = ""
 
-                # Extract text from MCP result
-                if hasattr(result, 'content') and isinstance(result.content, list):
-                    # MCP result object with content list
-                    for item in result.content:
-                        if hasattr(item, 'text'):
-                            result_text += item.text + "\n"
-                elif isinstance(result, dict):
-                    # Dict result
-                    if 'content' in result and isinstance(result['content'], list):
-                        for item in result['content']:
+                    # Extract text from MCP result
+                    if hasattr(result, 'content') and isinstance(result.content, list):
+                        # MCP result object with content list
+                        for item in result.content:
                             if hasattr(item, 'text'):
                                 result_text += item.text + "\n"
-                            elif isinstance(item, dict) and 'text' in item:
-                                result_text += item['text'] + "\n"
+                    elif isinstance(result, dict):
+                        # Dict result
+                        if 'content' in result and isinstance(result['content'], list):
+                            for item in result['content']:
+                                if hasattr(item, 'text'):
+                                    result_text += item.text + "\n"
+                                elif isinstance(item, dict) and 'text' in item:
+                                    result_text += item['text'] + "\n"
+                        else:
+                            result_text = json.dumps(result, indent=2)
                     else:
-                        result_text = json.dumps(result, indent=2)
-                else:
-                    # Fallback
-                    result_text = str(result)
+                        # Fallback
+                        result_text = str(result)
 
-                # Display formatted result
-                self.io.tool_output(f"✅ Result:")
-                self.io.tool_output(f"{'-'*80}")
+                    # Display formatted result
+                    self.io.tool_output(f"✅ Result:")
+                    self.io.tool_output(f"{'-'*80}")
 
-                # Clean up and display the text
-                if result_text.strip():
-                    # Truncate very long results
-                    lines = result_text.strip().split('\n')
-                    max_lines = 50  # Show first 50 lines max
+                    # Clean up and display the text
+                    if result_text.strip():
+                        # Truncate very long results
+                        lines = result_text.strip().split('\n')
+                        max_lines = 50  # Show first 50 lines max
 
-                    if len(lines) > max_lines:
-                        # Show first portion
-                        for line in lines[:max_lines]:
-                            if line.strip():
-                                self.io.tool_output(line)
-                        # Show truncation message
-                        self.io.tool_output(f"\n... ({len(lines) - max_lines} more lines truncated)")
-                        self.io.tool_output(f"Full result available in chat context for LLM")
+                        if len(lines) > max_lines:
+                            # Show first portion
+                            for line in lines[:max_lines]:
+                                if line.strip():
+                                    self.io.tool_output(line)
+                            # Show truncation message
+                            self.io.tool_output(f"\n... ({len(lines) - max_lines} more lines truncated)")
+                            self.io.tool_output(f"Full result available in chat context for LLM")
+                        else:
+                            # Show all lines
+                            for line in lines:
+                                if line.strip():
+                                    self.io.tool_output(line)
                     else:
-                        # Show all lines
-                        for line in lines:
-                            if line.strip():
-                                self.io.tool_output(line)
-                else:
-                    self.io.tool_output("(No output)")
+                        self.io.tool_output("(No output)")
 
-                self.io.tool_output(f"{'-'*80}\n")
+                    self.io.tool_output(f"{'-'*80}\n")
 
-                # Add result to chat history
-                results.append({
-                    "tool_call_id": tool_call.id,
-                    "role": "tool",
-                    "name": tool_name,
-                    "content": result_text.strip(),
-                })
+                    # Add result to chat history
+                    results.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": tool_name,
+                        "content": result_text.strip(),
+                    })
+                finally:
+                    # Stop spinner after all processing is done
+                    if spinner:
+                        spinner.stop()
 
             except Exception as e:
                 error_msg = f"MCP tool call failed: {e}"
