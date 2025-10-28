@@ -987,6 +987,13 @@ class Model(ModelSettings):
             kwargs["tools"] = tools_list
             if tool_choice:
                 kwargs["tool_choice"] = tool_choice
+
+            # Debug MCP tool setup
+            from aider.debug_logger import mcp_debug
+            mcp_debug(f"send_completion: Setting up tools for API call")
+            mcp_debug(f"  tools_list length: {len(tools_list)}")
+            mcp_debug(f"  tool_choice: {tool_choice}")
+            mcp_debug(f"  tools[0] name: {tools_list[0]['function']['name'] if tools_list else 'N/A'}")
         if self.extra_params:
             kwargs.update(self.extra_params)
         if self.is_ollama() and "num_ctx" not in kwargs:

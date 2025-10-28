@@ -1191,13 +1191,33 @@ You have access to MCP tools for fetching up-to-date documentation and informati
 
 {tools_text}
 
+## How to Use MCP Tools
+
+**IMPORTANT**: To call an MCP tool, you MUST use the function calling mechanism, NOT text output.
+
+When you need to call a tool:
+1. Use the actual function calling API (tool_calls in your response)
+2. DO NOT output JSON text like {{"name": "tool_name", "arguments": {{...}}}}
+3. The tool will execute and return results automatically
+4. You will receive the results in a subsequent message
+
+Example of CORRECT usage:
+User: "Get React useState documentation"
+Assistant: [Uses tool_calls API to request mcp__context7__resolve-library-id - no text output]
+System: [Aider executes the tool and returns results]
+Assistant: "Based on the documentation, React's useState hook..."
+
+Example of INCORRECT usage:
+User: "Get React useState documentation"
+Assistant: {{"name": "mcp__context7__resolve-library-id", "arguments": {{"libraryName": "React"}}}}  ← WRONG! Don't output JSON text.
+
 When to use MCP tools:
 - When you need current/latest documentation for libraries, frameworks, or APIs
 - When version-specific information is requested
 - When you're unsure about API syntax or recent changes
 - For accurate, up-to-date code examples
 
-The MCP tools provide more current information than your training data. Use them when appropriate.
+The MCP tools provide more current information than your training data. Use them when appropriate by making actual function calls.
 """
         return prompt.strip()
 
@@ -1876,6 +1896,15 @@ The MCP tools provide more current information than your training data. Use them
             # Pass MCP tools if available
             mcp_tools = self.mcp_tools if self.enable_mcp and self.mcp_tools else None
 
+            from aider.debug_logger import mcp_debug
+            mcp_debug(f"send(): About to call model.send_completion")
+            mcp_debug(f"  enable_mcp={self.enable_mcp}")
+            mcp_debug(f"  mcp_tools is None: {mcp_tools is None}")
+            if mcp_tools:
+                mcp_debug(f"  mcp_tools count: {len(mcp_tools)}")
+                mcp_debug(f"  mcp_tools[0]: {mcp_tools[0] if mcp_tools else 'N/A'}")
+            mcp_debug(f"  functions: {functions}")
+
             hash_object, completion = model.send_completion(
                 messages,
                 functions,
@@ -1885,9 +1914,79 @@ The MCP tools provide more current information than your training data. Use them
             )
             self.chat_completion_call_hashes.append(hash_object.hexdigest())
 
+            mcp_debug(f"send(): Returned from model.send_completion")
+            mcp_debug(f"  stream={self.stream}, enable_mcp={self.enable_mcp}")
+            mcp_debug(f"  completion type: {type(completion)}")
+
             if self.stream:
+                mcp_debug("send(): Taking streaming path")
                 yield from self.show_send_output_stream(completion)
+                mcp_debug("send(): Streaming complete, checking for tool calls")
+
+                # After streaming, check if we collected any tool calls from the API
+                tool_calls_to_process = None
+
+                if self.partial_response_tool_calls:
+                    mcp_debug(f"send(): Found {len(self.partial_response_tool_calls)} tool calls from streaming API")
+                    # Process tool calls after streaming completes
+                    from types import SimpleNamespace
+                    tool_calls_to_process = []
+                    for tc_dict in self.partial_response_tool_calls:
+                        if tc_dict.get('id') and tc_dict.get('function', {}).get('name'):
+                            tool_call = SimpleNamespace(
+                                id=tc_dict['id'],
+                                type='function',
+                                function=SimpleNamespace(
+                                    name=tc_dict['function']['name'],
+                                    arguments=tc_dict['function']['arguments']
+                                )
+                            )
+                            tool_calls_to_process.append(tool_call)
+                else:
+                    # Fallback: Check if LLM output JSON text instead of using tool_calls API
+                    mcp_debug("send(): No tool_calls from API, checking for text-based tool calls")
+                    if self.partial_response_content:
+                        tool_calls_to_process = self.parse_text_tool_calls(self.partial_response_content)
+                        if tool_calls_to_process:
+                            mcp_debug(f"send(): Found {len(tool_calls_to_process)} text-based tool calls")
+
+                if tool_calls_to_process:
+                        mcp_debug(f"send(): Processing {len(tool_calls_to_process)} tool calls")
+                        mcp_results = self.handle_mcp_tool_calls(tool_calls_to_process)
+
+                        if mcp_results:
+                            mcp_debug("send(): Got MCP results, continuing conversation")
+                            # Add assistant message with tool calls to history
+                            self.cur_messages.append({
+                                "role": "assistant",
+                                "content": self.partial_response_content or "",
+                                "tool_calls": [
+                                    {
+                                        "id": tc.id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc.function.name,
+                                            "arguments": tc.function.arguments,
+                                        }
+                                    }
+                                    for tc in tool_calls_to_process
+                                ]
+                            })
+                            # Add tool results to chat history
+                            self.cur_messages.extend(mcp_results)
+
+                            # Continue the conversation with tool results
+                            chunks = self.format_messages()
+                            messages = chunks.all_messages()
+
+                            try:
+                                # Recursively call send to continue conversation
+                                yield from self.send(messages, functions=self.functions)
+                            except Exception as e:
+                                self.io.tool_error(f"Error continuing after MCP tool call: {e}")
+                            return
             else:
+                mcp_debug("send(): Taking non-streaming path")
                 self.show_send_output(completion)
 
             # Calculate costs for successful responses
@@ -1915,6 +2014,84 @@ The MCP tools provide more current information than your training data. Use them
                 args = self.parse_partial_args()
                 if args:
                     self.io.ai_output(json.dumps(args, indent=4))
+
+    def parse_text_tool_calls(self, content):
+        """
+        Parse tool calls from text output (fallback for models that don't support tool_calls API).
+
+        Supports multiple formats:
+        1. JSON: {"name": "mcp__tool__name", "arguments": {"key": "value"}}
+        2. Function call: mcp__tool__name(key="value", key2="value2")
+
+        Returns:
+            List of tool_call objects in the same format as API tool_calls
+        """
+        import re
+        from types import SimpleNamespace
+
+        from aider.debug_logger import mcp_debug
+
+        tool_calls = []
+
+        # Pattern 1: JSON format
+        # Matches: {"name": "tool_name", "arguments": {...}}
+        json_pattern = r'\{"name":\s*"(mcp__[^"]+)",\s*"arguments":\s*(\{[^}]*\})\}'
+        json_matches = re.finditer(json_pattern, content)
+
+        for idx, match in enumerate(json_matches):
+            tool_name = match.group(1)
+            arguments_str = match.group(2)
+
+            mcp_debug(f"Detected JSON tool call: {tool_name}")
+            mcp_debug(f"  Arguments: {arguments_str}")
+
+            tool_call = SimpleNamespace(
+                id=f"text_call_{len(tool_calls)}",
+                type='function',
+                function=SimpleNamespace(
+                    name=tool_name,
+                    arguments=arguments_str
+                )
+            )
+            tool_calls.append(tool_call)
+
+        # Pattern 2: Function call format
+        # Matches: mcp__tool__name(arg1="value1", arg2="value2")
+        func_pattern = r'(mcp__\w+__[\w-]+)\(([^)]*)\)'
+        func_matches = re.finditer(func_pattern, content)
+
+        for match in func_matches:
+            tool_name = match.group(1)
+            args_str = match.group(2)
+
+            mcp_debug(f"Detected function-style tool call: {tool_name}")
+            mcp_debug(f"  Raw arguments: {args_str}")
+
+            # Parse function-style arguments into JSON
+            # Example: libraryName="React", version="18" -> {"libraryName": "React", "version": "18"}
+            args_dict = {}
+            if args_str.strip():
+                # Match key="value" or key='value' patterns
+                arg_pattern = r'(\w+)=(["\'])([^"\']*)\2'
+                for arg_match in re.finditer(arg_pattern, args_str):
+                    key = arg_match.group(1)
+                    value = arg_match.group(3)
+                    args_dict[key] = value
+
+            arguments_json = json.dumps(args_dict)
+            mcp_debug(f"  Parsed arguments: {arguments_json}")
+
+            tool_call = SimpleNamespace(
+                id=f"text_call_{len(tool_calls)}",
+                type='function',
+                function=SimpleNamespace(
+                    name=tool_name,
+                    arguments=arguments_json
+                )
+            )
+            tool_calls.append(tool_call)
+
+        return tool_calls if tool_calls else None
 
     def handle_mcp_tool_calls(self, tool_calls):
         """Handle MCP tool calls from LLM response."""
@@ -1986,6 +2163,9 @@ The MCP tools provide more current information than your training data. Use them
         return results if results else None
 
     def show_send_output(self, completion):
+        from aider.debug_logger import mcp_debug
+        mcp_debug("=== show_send_output CALLED ===")
+
         # Stop spinner once we have a response
         self._stop_waiting_spinner()
 
@@ -1994,6 +2174,7 @@ The MCP tools provide more current information than your training data. Use them
 
         if not completion.choices:
             self.io.tool_error(str(completion))
+            mcp_debug("show_send_output: No completion.choices, returning")
             return
 
         show_func_err = None
@@ -2127,10 +2308,32 @@ The MCP tools provide more current information than your training data. Use them
             raise FinishReasonLength()
 
     def show_send_output_stream(self, completion):
+        from aider.debug_logger import mcp_debug
+        mcp_debug("=== show_send_output_stream CALLED ===")
+
         received_content = False
+        chunk_count = 0
 
         for chunk in completion:
+            chunk_count += 1
+            if chunk_count <= 5 or chunk_count % 10 == 0:
+                mcp_debug(f"Processing chunk {chunk_count}")
+
+            # Detailed inspection of first chunk
+            if chunk_count == 1:
+                mcp_debug(f"First chunk inspection:")
+                mcp_debug(f"  chunk.choices length: {len(chunk.choices) if hasattr(chunk, 'choices') else 'N/A'}")
+                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta if hasattr(chunk.choices[0], 'delta') else None
+                    if delta:
+                        mcp_debug(f"  delta has tool_calls: {hasattr(delta, 'tool_calls')}")
+                        mcp_debug(f"  delta has function_call: {hasattr(delta, 'function_call')}")
+                        mcp_debug(f"  delta has content: {hasattr(delta, 'content')}")
+                        if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                            mcp_debug(f"  delta.tool_calls: {delta.tool_calls}")
+
             if len(chunk.choices) == 0:
+                mcp_debug(f"Chunk {chunk_count} has no choices, skipping")
                 continue
 
             if (
@@ -2142,9 +2345,10 @@ The MCP tools provide more current information than your training data. Use them
             # Handle tool_calls (new format)
             try:
                 tool_calls = chunk.choices[0].delta.tool_calls
+                if chunk_count <= 3:  # Log first 3 chunks
+                    mcp_debug(f"Chunk {chunk_count}: tool_calls value: {tool_calls}, type: {type(tool_calls)}")
                 if tool_calls:
-                    from aider.debug_logger import mcp_debug
-                    mcp_debug(f"Stream chunk has {len(tool_calls)} tool_calls")
+                    mcp_debug(f"Chunk {chunk_count}: Found {len(tool_calls)} tool_calls in delta")
                     for tool_call in tool_calls:
                         # Tool calls come in chunks, need to accumulate them
                         index = tool_call.index if hasattr(tool_call, 'index') else 0
@@ -2173,6 +2377,8 @@ The MCP tools provide more current information than your training data. Use them
             try:
                 func = chunk.choices[0].delta.function_call
                 # dump(func)
+                if func:
+                    mcp_debug(f"Chunk {chunk_count}: Found function_call in delta (OLD FORMAT): {func}")
                 for k, v in func.items():
                     if k in self.partial_response_function_call:
                         self.partial_response_function_call[k] += v
@@ -2230,6 +2436,11 @@ The MCP tools provide more current information than your training data. Use them
                     sys.stdout.write(safe_text)
                 sys.stdout.flush()
                 yield text
+
+        mcp_debug(f"Stream complete: processed {chunk_count} chunks")
+        mcp_debug(f"  partial_response_tool_calls has {len(self.partial_response_tool_calls)} items")
+        mcp_debug(f"  partial_response_function_call has {len(self.partial_response_function_call)} keys: {list(self.partial_response_function_call.keys())}")
+        mcp_debug(f"  partial_response_content length: {len(self.partial_response_content)}")
 
         if not received_content:
             self.io.tool_warning("Empty response received from LLM. Check your provider account?")
