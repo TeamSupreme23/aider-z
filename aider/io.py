@@ -40,6 +40,7 @@ from rich.text import Text
 
 from aider.mdstream import MarkdownStream
 
+from . import debug_logger
 from .dump import dump  # noqa: F401
 from .editor import pipe_editor
 from .utils import is_image_file
@@ -671,6 +672,7 @@ class InputOutput:
 
                     # Use custom Application with HSplit layout for separator line
                     try:
+                        debug_logger.debug("Starting custom Application for input")
                         # Create a buffer for input (always multiline)
                         input_buffer = Buffer(
                             completer=completer_instance,
@@ -682,30 +684,103 @@ class InputOutput:
                         if default:
                             input_buffer.text = default
 
-                        # Create layout with HSplit (input on top, separator below)
-                        root_container = HSplit([
-                            Window(
-                                BufferControl(
-                                    buffer=input_buffer,
-                                    lexer=None,
-                                ),
-                                # Don't set fixed height - let it grow with content
+                        # Create the input window with BufferControl and prompt indicator
+                        from prompt_toolkit.formatted_text import HTML
+                        from prompt_toolkit.layout.dimension import Dimension
+
+                        input_window = Window(
+                            BufferControl(
+                                buffer=input_buffer,
+                                lexer=None,
                             ),
+                            height=Dimension(min=1, max=10),  # Start at 1 line, grow up to 10 lines
+                            dont_extend_height=True,  # Don't take extra space
+                            wrap_lines=True,  # Enable automatic line wrapping
+                            get_line_prefix=lambda line_number, wrap_count: "> " if line_number == 0 else "  ",
+                        )
+
+                        # Create a dynamic message display function
+                        from prompt_toolkit.formatted_text import ANSI
+                        def get_interrupt_message():
+                            msg = getattr(self, 'interrupt_message', None)
+                            if msg:
+                                return ANSI(f"\033[33m{msg}\033[0m")  # Yellow color
+                            return ""
+
+                        # Build windows list with dynamic message
+                        windows = [
+                            input_window,
                             Window(
                                 FormattedTextControl(get_separator_line),
                                 height=1,
                             ),
-                        ])
+                            Window(
+                                FormattedTextControl(get_interrupt_message),
+                                height=lambda: 1 if getattr(self, 'interrupt_message', None) else 0,
+                            ),
+                        ]
+
+                        # Create layout with HSplit
+                        root_container = HSplit(windows)
+
+                        # Wrap in a Layout object with proper focus
+                        from prompt_toolkit.layout import Layout
+                        layout = Layout(root_container, focused_element=input_window)
 
                         # Create custom key bindings that include the original kb
                         custom_kb = KeyBindings()
 
-                        # In multiline mode, Enter adds newline, Alt+Enter submits
-                        @custom_kb.add("escape", "enter")  # Alt+Enter
+                        # Track Ctrl+C presses with timestamp
+                        ctrl_c_state = {'last_time': 0, 'message_visible': False}
+
+                        # Regular Enter submits (we're in multiline mode but want single-line behavior)
+                        @custom_kb.add("enter")
                         def _(event):
                             event.app.exit(result=input_buffer.text)
 
-                        @custom_kb.add("c-d")  # Ctrl+D also submits
+                        # Alt+Enter also submits
+                        @custom_kb.add("escape", "enter")
+                        def _(event):
+                            event.app.exit(result=input_buffer.text)
+
+                        # Ctrl+C shows message first, then exits on second press
+                        @custom_kb.add("c-c")
+                        def _(event):
+                            import time
+                            import threading
+                            now = time.time()
+                            thresh = 2  # seconds
+
+                            if ctrl_c_state['last_time'] and now - ctrl_c_state['last_time'] < thresh:
+                                # Second Ctrl+C within threshold - set flag and exit app
+                                self._exit_requested = True
+                                event.app.exit(result='__EXIT__')
+                            else:
+                                # Timeout expired or first Ctrl+C
+                                # Clear old message if it exists
+                                if getattr(self, 'interrupt_message', None):
+                                    self.interrupt_message = None
+                                    event.app.invalidate()
+
+                                # Show new message and update timestamp
+                                ctrl_c_state['last_time'] = now
+                                self.interrupt_message = "^C again to exit"
+                                # Trigger a redraw by updating the layout
+                                event.app.invalidate()
+
+                                # Start a timer to clear the message after threshold
+                                def clear_message():
+                                    time.sleep(thresh)
+                                    # Only clear if this is still the same message (no new Ctrl+C)
+                                    if ctrl_c_state['last_time'] == now:
+                                        self.interrupt_message = None
+                                        event.app.invalidate()
+
+                                timer = threading.Thread(target=clear_message, daemon=True)
+                                timer.start()
+
+                        # Ctrl+D also submits
+                        @custom_kb.add("c-d")
                         def _(event):
                             if not input_buffer.text:
                                 # Empty input on Ctrl+D exits
@@ -714,25 +789,41 @@ class InputOutput:
                                 # With text, Ctrl+D submits
                                 event.app.exit(result=input_buffer.text)
 
-                        # Merge with existing key bindings
-                        merged_kb = KeyBindings()
-                        merged_kb._bindings = kb._bindings + custom_kb._bindings
+                        # Use only custom key bindings (original kb might conflict)
+                        debug_logger.debug("Using custom key bindings only")
 
-                        # Create and run the application
+                        # Create and run the application with proper Layout
                         app = Application(
-                            layout=root_container,
-                            key_bindings=merged_kb,
+                            layout=layout,
+                            key_bindings=custom_kb,
                             style=style,
                             editing_mode=self.editingmode,
                             full_screen=False,
                         )
 
-                        # Print the prompt text before running
-                        print(show, end='', flush=True)
+                        # Don't print prompt text - it's now in the input window prefix
+                        # print(show, end='', flush=True)
 
                         line = app.run()
+
+                        # Check if exit was requested
+                        if line == '__EXIT__':
+                            import sys
+                            sys.exit(0)
+
+                        # Debug: Check what we got
+                        if line is None:
+                            line = ""
+
+                        # Debug output
+                        debug_logger.debug(f"app.run() returned: {repr(line)}")
+                    except KeyboardInterrupt:
+                        raise
                     except Exception as e:
                         # Fallback to original prompt_session if custom app fails
+                        debug_logger.error(f"Custom app failed, falling back to prompt_session: {e}")
+                        import traceback
+                        debug_logger.error(traceback.format_exc())
                         line = self.prompt_session.prompt(
                             show,
                             default=default,
@@ -786,9 +877,11 @@ class InputOutput:
                         inp += ""
                     else:
                         inp = line
+                        debug_logger.debug(f"Breaking with inp: {repr(inp)}")
                         break
                 else:
                     inp = line
+                    debug_logger.debug(f"Breaking with inp: {repr(inp)}")
                     break
                 continue
             elif multiline_input and line.strip():

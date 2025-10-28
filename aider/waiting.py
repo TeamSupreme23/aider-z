@@ -16,6 +16,8 @@ Use it like:
 import sys
 import threading
 import time
+import signal
+import os
 
 from rich.console import Console
 
@@ -196,6 +198,65 @@ class WaitingSpinner:
         self.spinner.end()
 
     # Allow use as a context-manager
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
+
+
+class EscapeKeyListener:
+    """Background listener for Escape key to trigger KeyboardInterrupt."""
+
+    def __init__(self):
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._listen, daemon=True)
+        self._enabled = sys.stdin.isatty()
+        self.escape_pressed = False  # Flag to track if Escape was pressed
+
+    def _listen(self):
+        """Listen for Escape key in background thread."""
+        if not self._enabled:
+            return
+
+        try:
+            import termios
+            import tty
+
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+
+            try:
+                tty.setcbreak(fd)
+                while not self._stop_event.is_set():
+                    # Check if there's input available
+                    import select
+                    if select.select([sys.stdin], [], [], 0.1)[0]:
+                        ch = sys.stdin.read(1)
+                        # Check for Escape key (ASCII 27)
+                        if ord(ch) == 27:
+                            # Set flag and send SIGINT to main thread
+                            self.escape_pressed = True
+                            os.kill(os.getpid(), signal.SIGINT)
+                            break
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except Exception:
+            # If anything goes wrong, silently fail
+            pass
+
+    def start(self):
+        """Start listening for Escape key."""
+        if self._enabled and not self._thread.is_alive():
+            self._thread.start()
+
+    def stop(self):
+        """Stop listening."""
+        self._stop_event.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=0.2)
+
     def __enter__(self):
         self.start()
         return self

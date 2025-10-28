@@ -581,13 +581,21 @@ class Coder:
         return True
 
     def _stop_waiting_spinner(self):
-        """Stop and clear the waiting spinner if it is running."""
+        """Stop and clear the waiting spinner and escape listener if running."""
         spinner = getattr(self, "waiting_spinner", None)
         if spinner:
             try:
                 spinner.stop()
             finally:
                 self.waiting_spinner = None
+
+        # Also stop escape key listener
+        escape_listener = getattr(self, "escape_listener", None)
+        if escape_listener:
+            try:
+                escape_listener.stop()
+            finally:
+                self.escape_listener = None
 
     def get_abs_fnames_content(self):
         for fname in list(self.abs_fnames):
@@ -981,15 +989,28 @@ class Coder:
         # Ensure cursor is visible on exit
         Console().show_cursor(True)
 
+        # Check if Escape key was pressed
+        escape_listener = getattr(self, "escape_listener", None)
+        if escape_listener and escape_listener.escape_pressed:
+            # Set message to display before next prompt
+            self.io.interrupt_message = "Operation Cancelled by ESC key"
+            # Reset the flag
+            escape_listener.escape_pressed = False
+            return
+
         now = time.time()
 
         thresh = 2  # seconds
         if self.last_keyboard_interrupt and now - self.last_keyboard_interrupt < thresh:
-            self.io.tool_warning("\n\n^C KeyboardInterrupt")
+            import sys
+            sys.stdout.write("\r\033[K")  # Clear current line
+            sys.stdout.flush()
+            self.io.tool_warning("^C KeyboardInterrupt\n")
             self.event("exit", reason="Control-C")
             sys.exit()
 
-        self.io.tool_warning("\n\n^C again to exit")
+        # Set message to display before next prompt
+        self.io.interrupt_message = "^C again to exit"
 
         self.last_keyboard_interrupt = now
 
@@ -1496,6 +1517,10 @@ The MCP tools provide more current information than your training data. Use them
         if self.show_pretty():
             self.waiting_spinner = WaitingSpinner("Waiting for " + self.main_model.name)
             self.waiting_spinner.start()
+            # Start listening for Escape key to cancel
+            from aider.waiting import EscapeKeyListener
+            self.escape_listener = EscapeKeyListener()
+            self.escape_listener.start()
             if self.stream:
                 self.mdstream = self.io.get_assistant_mdstream()
             else:
