@@ -77,6 +77,7 @@ class MCPServerConnection:
         self.config = config
         self.client = None
         self.session = None
+        self._stdio_context = None
         self.connected = False
         self.tools: List[MCPToolWrapper] = []
 
@@ -141,8 +142,9 @@ class MCPServerConnection:
             env=env if env else None,
         )
 
-        # Connect
-        read, write = await stdio_client(server_params).__aenter__()
+        # Connect - properly manage async context
+        self._stdio_context = stdio_client(server_params)
+        read, write = await self._stdio_context.__aenter__()
         self.session = ClientSession(read, write)
         await self.session.__aenter__()
         await self.session.initialize()
@@ -165,7 +167,13 @@ class MCPServerConnection:
             try:
                 await self.session.__aexit__(None, None, None)
             except Exception as e:
-                logger.warning(f"Error disconnecting from {self.server_name}: {e}")
+                logger.warning(f"Error disconnecting session from {self.server_name}: {e}")
+
+        if self._stdio_context:
+            try:
+                await self._stdio_context.__aexit__(None, None, None)
+            except Exception as e:
+                logger.warning(f"Error disconnecting stdio from {self.server_name}: {e}")
 
         self.connected = False
         self.tools.clear()
