@@ -449,8 +449,16 @@ def sanity_check_repo(repo, io):
     return False
 
 
+def get_react_usestate_docs():
+    context7_connector = Context7Connector(api_key=os.environ.get("CONTEXT7_API_KEY"))
+    library_id = "/facebook/react"
+    topic = "useState"
+    docs = context7_connector.get_library_docs(context7CompatibleLibraryID=library_id, topic=topic)
+    print(docs)
+
 def main(argv=None, input=None, output=None, force_git_root=None, return_coder=False):
     report_uncaught_exceptions()
+    get_react_usestate_docs()
 
     if argv is None:
         argv = sys.argv[1:]
