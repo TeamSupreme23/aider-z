@@ -8,11 +8,13 @@
 # Install Python MCP dependencies
 pip install mcp nest-asyncio
 
-# Install Context7 server (requires Node.js)
-npm install -g context7-server
+# Context7 will auto-install via npx when first used
+# Or optionally pre-install:
+npm install -g @upstash/context7-mcp
 
-# Verify installation
-which context7-server
+# Verify npx is available (comes with Node.js)
+which npx
+npx --version
 ```
 
 ### 2. Get Context7 API Key

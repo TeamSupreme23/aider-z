@@ -21,9 +21,13 @@ pip install mcp nest-asyncio
 
 ### 2. Install Context7 (for documentation access)
 
+Context7 will be automatically installed via npx when first used. You can also pre-install it:
+
 ```bash
-npm install -g context7-server
+npm install -g @upstash/context7-mcp
 ```
+
+**Note:** The configuration uses `npx -y @upstash/context7-mcp` which will automatically download and run the package on first use.
 
 ### 3. Set API Key
 
@@ -42,7 +46,8 @@ mcp_servers:
   context7:
     enabled: true
     transport: stdio
-    command: "context7-server"
+    command: "npx"
+    args: ["-y", "@upstash/context7-mcp"]
     env:
       CONTEXT7_API_KEY: "${CONTEXT7_API_KEY}"
     auto_connect: true
@@ -112,21 +117,23 @@ ui:
 
 **Installation**:
 ```bash
-npm install -g context7-server
+# Auto-installed via npx, or pre-install with:
+npm install -g @upstash/context7-mcp
 export CONTEXT7_API_KEY="your-key"
 ```
 
 **Tools**:
-- `search_documentation`: Search across library docs
-- `get_library_context`: Get version-specific examples
-- `list_supported_libraries`: List available libraries
+- `resolve-library-id`: Resolve package names to Context7 library IDs
+- `get-library-docs`: Fetch up-to-date documentation for a library
+- Supports version-specific documentation
 
 **Configuration**:
 ```yaml
 context7:
   enabled: true
   transport: stdio
-  command: "context7-server"
+  command: "npx"
+  args: ["-y", "@upstash/context7-mcp"]
   env:
     CONTEXT7_API_KEY: "${CONTEXT7_API_KEY}"
   auto_connect: true
@@ -156,9 +163,10 @@ pip install mcp nest-asyncio
 
 ### "Failed to connect to MCP server"
 
-1. Check that the server command is installed:
+1. Check that npx is available:
    ```bash
-   which context7-server
+   which npx
+   npx --version
    ```
 
 2. Verify API key is set:

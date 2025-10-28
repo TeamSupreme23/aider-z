@@ -85,19 +85,15 @@ if command -v node &> /dev/null; then
     NODE_VERSION=$(node --version)
     test_pass "Node.js $NODE_VERSION found"
 
-    # Test 6: Check if context7-server is installed
-    test_step "Checking context7-server installation"
-    if command -v context7-server &> /dev/null; then
-        test_pass "context7-server is installed"
+    # Test 6: Check if npx is available (comes with npm)
+    test_step "Checking npx (needed to run @upstash/context7-mcp)"
+    if command -v npx &> /dev/null; then
+        NPX_VERSION=$(npx --version)
+        test_pass "npx $NPX_VERSION is available"
+        echo "Context7 will be auto-installed via: npx -y @upstash/context7-mcp"
     else
-        echo -e "${YELLOW}Installing context7-server globally...${NC}"
-        npm install -g context7-server
-        if command -v context7-server &> /dev/null; then
-            test_pass "context7-server installed successfully"
-        else
-            test_fail "Failed to install context7-server"
-            echo "You can install it manually: npm install -g context7-server"
-        fi
+        test_fail "npx not found (should come with Node.js/npm)"
+        echo "Reinstall Node.js from: https://nodejs.org/"
     fi
 else
     test_fail "Node.js not found (needed for context7-server)"

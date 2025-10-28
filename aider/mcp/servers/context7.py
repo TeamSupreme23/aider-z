@@ -27,7 +27,8 @@ class Context7Connector(BaseMCPServerConnector):
         self.requires_api_key = True
         self.env_var = "CONTEXT7_API_KEY"
         self.transport = "stdio"
-        self.command = "context7-server"
+        self.command = "npx"
+        self.args = ["-y", "@upstash/context7-mcp"]
         self.description = "Get version-specific documentation and code examples"
 
     def get_config(self, api_key: Optional[str] = None) -> Dict[str, Any]:
@@ -44,7 +45,7 @@ class Context7Connector(BaseMCPServerConnector):
 
         config.update({
             'command': self.command,
-            'args': [],
+            'args': self.args,
             'description': self.description,
         })
 
@@ -64,10 +65,10 @@ To use Context7:
 2. Set the environment variable:
    export CONTEXT7_API_KEY="your-api-key-here"
 
-3. Ensure context7-server is installed:
-   npm install -g context7-server
+3. Context7 will auto-install via npx, or you can pre-install:
+   npm install -g @upstash/context7-mcp
 
-For more information: https://context7.com/docs
+For more information: https://github.com/upstash/context7
 """
 
     def get_tool_descriptions(self) -> Dict[str, str]:
@@ -78,7 +79,6 @@ For more information: https://context7.com/docs
             Dict mapping tool names to descriptions
         """
         return {
-            'search_documentation': 'Search documentation across software libraries',
-            'get_library_context': 'Get version-specific code examples and context',
-            'list_supported_libraries': 'List all supported software libraries',
+            'resolve-library-id': 'Resolve package/product names to Context7 library IDs',
+            'get-library-docs': 'Fetch up-to-date documentation for a specific library',
         }

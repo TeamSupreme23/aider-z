@@ -60,6 +60,7 @@ Total: ~1,700 lines of production code + documentation
 
 ### Git Commits
 ```
+e9637eb7 feat(mcp): Expose MCP tools to LLM for actual use
 6cd8aaa1 docs(mcp): Add comprehensive MCP integration documentation
 adf2cf02 feat(mcp): Add Context7 connector and configuration
 bc108179 feat(mcp): Integrate MCP with Aider core
@@ -178,46 +179,42 @@ MCPToolWrapper ──> Tool Adaptation
    - `/mcp-install <server>`: One-command installation
    - `/mcp-discover`: Auto-discover installed servers
 
-4. **Tool Call Integration**: Basic integration
-   - Need to hook into LLM tool call response handling
-   - Result injection into conversation history
-   - Tool call display in UI
+4. **Tool Call Integration**: ✅ COMPLETE
+   - ✅ Tools exposed to LLM in LiteLLM format
+   - ✅ MCP tool calls detected and executed
+   - ✅ Results injected into conversation history
+   - ✅ Conversation continues with tool results
 
 ## Next Steps for Production
 
 ### High Priority
-1. **LLM Tool Call Integration**
-   - Detect MCP tool calls in LLM responses
-   - Execute tools via MCPClientManager
-   - Format and inject results
+1. **Testing** ⬅️ NEXT STEP
+   - ⏳ End-to-end test with Context7
+   - TODO: Unit tests for MCPRegistry
+   - TODO: Integration tests with mock MCP server
 
-2. **Testing**
-   - Unit tests for MCPRegistry
-   - Integration tests with mock MCP server
-   - End-to-end test with Context7
-
-3. **Error Recovery**
+2. **Error Recovery**
    - Reconnection logic for dropped connections
    - Tool call retry mechanism
    - Fallback behavior when tools fail
 
 ### Medium Priority
-4. **Slash Commands**
+3. **Slash Commands**
    - `/mcp-list`: Interactive tool browser
    - `/mcp-connect <server>`: Runtime connection
    - `/mcp-disconnect <server>`: Runtime disconnection
 
-5. **Enhanced UI**
+4. **Enhanced UI**
    - Tool call notifications
    - Progress indicators for long-running tools
    - Tool result formatting
 
 ### Low Priority
-6. **Additional Transports**
+5. **Additional Transports**
    - SSE support for remote servers
    - HTTP support with authentication
 
-7. **Auto-Installer**
+6. **Auto-Installer**
    - MCP server registry integration
    - One-command installation
    - Dependency management
