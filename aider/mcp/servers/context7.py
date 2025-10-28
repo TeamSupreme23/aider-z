@@ -1,0 +1,84 @@
+"""
+Context7 MCP Server Connector.
+
+Provides configuration and setup for the Context7 documentation server.
+Context7 provides version-specific documentation and code examples
+for software libraries.
+"""
+
+from typing import Dict, Any, Optional
+from .base import BaseMCPServerConnector
+
+
+class Context7Connector(BaseMCPServerConnector):
+    """
+    Connector for Context7 MCP server.
+
+    Context7 provides:
+    - Documentation search across libraries
+    - Version-specific code examples
+    - Library context retrieval
+    """
+
+    def __init__(self):
+        """Initialize Context7 connector."""
+        super().__init__()
+        self.server_name = "context7"
+        self.requires_api_key = True
+        self.env_var = "CONTEXT7_API_KEY"
+        self.transport = "stdio"
+        self.command = "context7-server"
+        self.description = "Get version-specific documentation and code examples"
+
+    def get_config(self, api_key: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get Context7 server configuration.
+
+        Args:
+            api_key: Optional Context7 API key
+
+        Returns:
+            Configuration dict for Context7
+        """
+        config = super().get_config(api_key)
+
+        config.update({
+            'command': self.command,
+            'args': [],
+            'description': self.description,
+        })
+
+        return config
+
+    def get_api_key_instructions(self) -> str:
+        """
+        Get instructions for obtaining Context7 API key.
+
+        Returns:
+            Instructions string
+        """
+        return """
+To use Context7:
+
+1. Visit https://context7.com/ to sign up for an API key
+2. Set the environment variable:
+   export CONTEXT7_API_KEY="your-api-key-here"
+
+3. Ensure context7-server is installed:
+   npm install -g context7-server
+
+For more information: https://context7.com/docs
+"""
+
+    def get_tool_descriptions(self) -> Dict[str, str]:
+        """
+        Get expected Context7 tool descriptions.
+
+        Returns:
+            Dict mapping tool names to descriptions
+        """
+        return {
+            'search_documentation': 'Search documentation across software libraries',
+            'get_library_context': 'Get version-specific code examples and context',
+            'list_supported_libraries': 'List all supported software libraries',
+        }
