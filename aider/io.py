@@ -673,12 +673,19 @@ class InputOutput:
                     # Use custom Application with HSplit layout for separator line
                     try:
                         debug_logger.debug("Starting custom Application for input")
+
+                        # Get history if available
+                        history = None
+                        if self.input_history_file:
+                            history = FileHistory(self.input_history_file)
+
                         # Create a buffer for input (always multiline)
                         input_buffer = Buffer(
                             completer=completer_instance,
                             complete_while_typing=True,
                             multiline=True,
                             accept_handler=lambda buff: None,  # Handled by key binding
+                            history=history,
                         )
 
                         if default:
@@ -789,13 +796,21 @@ class InputOutput:
                                 # With text, Ctrl+D submits
                                 event.app.exit(result=input_buffer.text)
 
-                        # Use only custom key bindings (original kb might conflict)
-                        debug_logger.debug("Using custom key bindings only")
+                        # Merge custom key bindings with default buffer bindings for history
+                        from prompt_toolkit.key_binding import merge_key_bindings
+                        from prompt_toolkit.key_binding.defaults import load_key_bindings
+
+                        # Load default key bindings for the current editing mode
+                        default_bindings = load_key_bindings()
+                        # Put custom_kb LAST so our bindings override defaults (especially Enter and Ctrl+C)
+                        merged_bindings = merge_key_bindings([default_bindings, custom_kb])
+
+                        debug_logger.debug("Merged custom and default key bindings")
 
                         # Create and run the application with proper Layout
                         app = Application(
                             layout=layout,
-                            key_bindings=custom_kb,
+                            key_bindings=merged_bindings,
                             style=style,
                             editing_mode=self.editingmode,
                             full_screen=False,
