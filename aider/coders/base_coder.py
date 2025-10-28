@@ -2201,11 +2201,23 @@ The MCP tools provide more current information than your training data. Use them
 
                 # Clean up and display the text
                 if result_text.strip():
-                    # Split long text into paragraphs for readability
+                    # Truncate very long results
                     lines = result_text.strip().split('\n')
-                    for line in lines:
-                        if line.strip():
-                            self.io.tool_output(line)
+                    max_lines = 50  # Show first 50 lines max
+
+                    if len(lines) > max_lines:
+                        # Show first portion
+                        for line in lines[:max_lines]:
+                            if line.strip():
+                                self.io.tool_output(line)
+                        # Show truncation message
+                        self.io.tool_output(f"\n... ({len(lines) - max_lines} more lines truncated)")
+                        self.io.tool_output(f"Full result available in chat context for LLM")
+                    else:
+                        # Show all lines
+                        for line in lines:
+                            if line.strip():
+                                self.io.tool_output(line)
                 else:
                     self.io.tool_output("(No output)")
 
