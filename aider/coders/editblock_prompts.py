@@ -172,3 +172,5 @@ The user will say when they've applied your edits. If they haven't explicitly co
     shell_cmd_prompt = shell.shell_cmd_prompt
     no_shell_cmd_prompt = shell.no_shell_cmd_prompt
     shell_cmd_reminder = shell.shell_cmd_reminder
+     def new_function():
+         pass
