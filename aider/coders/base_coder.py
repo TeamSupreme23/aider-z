@@ -2157,29 +2157,57 @@ The MCP tools provide more current information than your training data. Use them
                         self.io.tool_output(f"  • {key}: {value}")
                 self.io.tool_output("")
 
-                # Execute tool via MCP client
-                result = self.mcp_client.call_tool(tool_name, arguments)
+                # Show loading spinner while waiting for MCP tool result
+                spinner = None
+                if self.show_pretty():
+                    from aider.waiting import WaitingSpinner
+                    spinner = WaitingSpinner(f"Calling {tool_name}...")
+                    spinner.start()
 
-                # Format result for display
-                self.io.tool_output(f"✅ Result:")
-                self.io.tool_output(f"{'-'*80}")
+                try:
+                    # Execute tool via MCP client
+                    result = self.mcp_client.call_tool(tool_name, arguments)
+                finally:
+                    # Stop spinner
+                    if spinner:
+                        spinner.stop()
 
-                # Pretty print the result based on its structure
-                if isinstance(result, dict):
-                    # Handle MCP response format
+                # Format result for display and storage
+                result_text = ""
+
+                # Extract text from MCP result
+                if hasattr(result, 'content') and isinstance(result.content, list):
+                    # MCP result object with content list
+                    for item in result.content:
+                        if hasattr(item, 'text'):
+                            result_text += item.text + "\n"
+                elif isinstance(result, dict):
+                    # Dict result
                     if 'content' in result and isinstance(result['content'], list):
                         for item in result['content']:
                             if hasattr(item, 'text'):
-                                # Format the text content nicely
-                                text = item.text
-                                # Add some spacing and formatting
-                                self.io.tool_output(text)
+                                result_text += item.text + "\n"
+                            elif isinstance(item, dict) and 'text' in item:
+                                result_text += item['text'] + "\n"
                     else:
-                        result_str = json.dumps(result, indent=2)
-                        self.io.tool_output(result_str)
+                        result_text = json.dumps(result, indent=2)
                 else:
-                    result_str = str(result)
-                    self.io.tool_output(result_str)
+                    # Fallback
+                    result_text = str(result)
+
+                # Display formatted result
+                self.io.tool_output(f"✅ Result:")
+                self.io.tool_output(f"{'-'*80}")
+
+                # Clean up and display the text
+                if result_text.strip():
+                    # Split long text into paragraphs for readability
+                    lines = result_text.strip().split('\n')
+                    for line in lines:
+                        if line.strip():
+                            self.io.tool_output(line)
+                else:
+                    self.io.tool_output("(No output)")
 
                 self.io.tool_output(f"{'-'*80}\n")
 
@@ -2188,7 +2216,7 @@ The MCP tools provide more current information than your training data. Use them
                     "tool_call_id": tool_call.id,
                     "role": "tool",
                     "name": tool_name,
-                    "content": result_str,
+                    "content": result_text.strip(),
                 })
 
             except Exception as e:

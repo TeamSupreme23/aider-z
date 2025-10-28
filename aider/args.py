@@ -818,8 +818,8 @@ def get_parser(default_config_files, git_root):
     group.add_argument(
         "--enable-mcp",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Enable MCP (Model Context Protocol) tool integration (default: False)",
+        default=True,
+        help="Enable MCP (Model Context Protocol) tool integration (default: True)",
     )
     group.add_argument(
         "--mcp-config",
