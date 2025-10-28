@@ -1867,6 +1867,7 @@ The MCP tools provide more current information than your training data. Use them
 
         self.partial_response_content = ""
         self.partial_response_function_call = dict()
+        self.partial_response_tool_calls = []  # Track tool calls during streaming
 
         self.io.log_llm_history("TO LLM", format_messages(messages))
 
@@ -1917,7 +1918,11 @@ The MCP tools provide more current information than your training data. Use them
 
     def handle_mcp_tool_calls(self, tool_calls):
         """Handle MCP tool calls from LLM response."""
+        # Debug: Log that we're handling tool calls
+        logger.info(f"handle_mcp_tool_calls called with {len(tool_calls)} tool calls")
+
         if not self.enable_mcp or not self.mcp_client:
+            logger.info(f"MCP disabled or no client: enable_mcp={self.enable_mcp}, mcp_client={self.mcp_client}")
             return None
 
         results = []
@@ -1925,15 +1930,18 @@ The MCP tools provide more current information than your training data. Use them
 
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
+            logger.info(f"Processing tool call: {tool_name}")
 
             # Check if this is an MCP tool (prefixed with mcp__)
             if not tool_name.startswith("mcp__"):
+                logger.info(f"Tool {tool_name} does not have mcp__ prefix, skipping")
                 non_mcp_tools.append(tool_name)
                 continue
 
             try:
                 # Parse arguments
                 arguments = json.loads(tool_call.function.arguments)
+                logger.info(f"Parsed arguments for {tool_name}: {arguments}")
 
                 self.io.tool_output(f"Calling MCP tool: {tool_name}")
 
@@ -1988,17 +1996,49 @@ The MCP tools provide more current information than your training data. Use them
 
         show_func_err = None
         show_content_err = None
+
+        # Check for tool calls - could be from streaming (partial_response_tool_calls)
+        # or from non-streaming response (completion.choices[0].message.tool_calls)
+        tool_calls = None
         try:
             if completion.choices[0].message.tool_calls:
-                # Handle MCP tool calls
                 tool_calls = completion.choices[0].message.tool_calls
+        except AttributeError:
+            pass
+
+        # If no tool calls from completion, check if we collected them during streaming
+        if not tool_calls and self.partial_response_tool_calls:
+            # Convert dict format to proper tool_call objects format
+            from types import SimpleNamespace
+            tool_calls = []
+            for tc_dict in self.partial_response_tool_calls:
+                if tc_dict.get('id') and tc_dict.get('function', {}).get('name'):
+                    tool_call = SimpleNamespace(
+                        id=tc_dict['id'],
+                        type='function',
+                        function=SimpleNamespace(
+                            name=tc_dict['function']['name'],
+                            arguments=tc_dict['function']['arguments']
+                        )
+                    )
+                    tool_calls.append(tool_call)
+
+        try:
+            if tool_calls:
+                # Handle MCP tool calls
                 mcp_results = self.handle_mcp_tool_calls(tool_calls)
 
                 if mcp_results:
+                    # Get content from completion or partial_response_content
+                    try:
+                        content = completion.choices[0].message.content or ""
+                    except AttributeError:
+                        content = self.partial_response_content or ""
+
                     # Add assistant message with tool calls to history
                     self.cur_messages.append({
                         "role": "assistant",
-                        "content": completion.choices[0].message.content or "",
+                        "content": content,
                         "tool_calls": [
                             {
                                 "id": tc.id,
@@ -2027,9 +2067,9 @@ The MCP tools provide more current information than your training data. Use them
                     return
 
                 # Not an MCP tool call, handle as normal function call
-                self.partial_response_function_call = (
-                    completion.choices[0].message.tool_calls[0].function
-                )
+                # Use the first tool_call if available
+                if tool_calls and len(tool_calls) > 0:
+                    self.partial_response_function_call = tool_calls[0].function
         except AttributeError as func_err:
             show_func_err = func_err
 
@@ -2088,6 +2128,35 @@ The MCP tools provide more current information than your training data. Use them
                 and chunk.choices[0].finish_reason == "length"
             ):
                 raise FinishReasonLength()
+
+            # Handle tool_calls (new format)
+            try:
+                tool_calls = chunk.choices[0].delta.tool_calls
+                if tool_calls:
+                    for tool_call in tool_calls:
+                        # Tool calls come in chunks, need to accumulate them
+                        index = tool_call.index if hasattr(tool_call, 'index') else 0
+
+                        # Ensure we have enough slots in the list
+                        while len(self.partial_response_tool_calls) <= index:
+                            self.partial_response_tool_calls.append({
+                                'id': '',
+                                'type': 'function',
+                                'function': {'name': '', 'arguments': ''}
+                            })
+
+                        # Accumulate the tool call data
+                        if hasattr(tool_call, 'id') and tool_call.id:
+                            self.partial_response_tool_calls[index]['id'] = tool_call.id
+                        if hasattr(tool_call, 'function') and tool_call.function:
+                            if hasattr(tool_call.function, 'name') and tool_call.function.name:
+                                self.partial_response_tool_calls[index]['function']['name'] += tool_call.function.name
+                            if hasattr(tool_call.function, 'arguments') and tool_call.function.arguments:
+                                self.partial_response_tool_calls[index]['function']['arguments'] += tool_call.function.arguments
+
+                        received_content = True
+            except AttributeError:
+                pass
 
             try:
                 func = chunk.choices[0].delta.function_call
