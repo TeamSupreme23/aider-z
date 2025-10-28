@@ -15,10 +15,19 @@ os.makedirs(LOG_DIR, exist_ok=True)
 logger = logging.getLogger("aider.shell_debug")
 logger.setLevel(logging.DEBUG)
 
-# Create file handler
+# Create a logger for MCP debugging
+mcp_logger = logging.getLogger("aider.mcp_debug")
+mcp_logger.setLevel(logging.DEBUG)
+
+# Create file handler for shell debug
 log_file = os.path.join(LOG_DIR, "shell_debug.log")
 file_handler = logging.FileHandler(log_file, mode='a')
 file_handler.setLevel(logging.DEBUG)
+
+# Create file handler for MCP debug
+mcp_log_file = os.path.join(LOG_DIR, "mcp_debug.log")
+mcp_file_handler = logging.FileHandler(mcp_log_file, mode='a')
+mcp_file_handler.setLevel(logging.DEBUG)
 
 # Create formatter
 formatter = logging.Formatter(
@@ -26,10 +35,13 @@ formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 file_handler.setFormatter(formatter)
+mcp_file_handler.setFormatter(formatter)
 
-# Add handler to logger
+# Add handlers to loggers
 if not logger.handlers:  # Avoid adding duplicate handlers
     logger.addHandler(file_handler)
+if not mcp_logger.handlers:
+    mcp_logger.addHandler(mcp_file_handler)
 
 def debug(msg, *args, **kwargs):
     """Log debug message"""
@@ -101,3 +113,21 @@ def log_response_content(content):
             debug(f"Found {count} occurrences of '{marker}'")
 
 print(f"Debug logger initialized. Logging to: {log_file}")
+print(f"MCP debug logger initialized. Logging to: {mcp_log_file}")
+
+# MCP-specific logging functions
+def mcp_debug(msg, *args, **kwargs):
+    """Log MCP debug message"""
+    mcp_logger.debug(msg, *args, **kwargs)
+
+def mcp_info(msg, *args, **kwargs):
+    """Log MCP info message"""
+    mcp_logger.info(msg, *args, **kwargs)
+
+def mcp_warning(msg, *args, **kwargs):
+    """Log MCP warning message"""
+    mcp_logger.warning(msg, *args, **kwargs)
+
+def mcp_error(msg, *args, **kwargs):
+    """Log MCP error message"""
+    mcp_logger.error(msg, *args, **kwargs)

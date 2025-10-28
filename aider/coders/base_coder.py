@@ -1918,11 +1918,13 @@ The MCP tools provide more current information than your training data. Use them
 
     def handle_mcp_tool_calls(self, tool_calls):
         """Handle MCP tool calls from LLM response."""
+        from aider.debug_logger import mcp_info, mcp_debug, mcp_error
+
         # Debug: Log that we're handling tool calls
-        logger.info(f"handle_mcp_tool_calls called with {len(tool_calls)} tool calls")
+        mcp_info(f"handle_mcp_tool_calls called with {len(tool_calls)} tool calls")
 
         if not self.enable_mcp or not self.mcp_client:
-            logger.info(f"MCP disabled or no client: enable_mcp={self.enable_mcp}, mcp_client={self.mcp_client}")
+            mcp_info(f"MCP disabled or no client: enable_mcp={self.enable_mcp}, mcp_client={self.mcp_client}")
             return None
 
         results = []
@@ -1930,18 +1932,18 @@ The MCP tools provide more current information than your training data. Use them
 
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
-            logger.info(f"Processing tool call: {tool_name}")
+            mcp_debug(f"Processing tool call: {tool_name}")
 
             # Check if this is an MCP tool (prefixed with mcp__)
             if not tool_name.startswith("mcp__"):
-                logger.info(f"Tool {tool_name} does not have mcp__ prefix, skipping")
+                mcp_debug(f"Tool {tool_name} does not have mcp__ prefix, skipping")
                 non_mcp_tools.append(tool_name)
                 continue
 
             try:
                 # Parse arguments
                 arguments = json.loads(tool_call.function.arguments)
-                logger.info(f"Parsed arguments for {tool_name}: {arguments}")
+                mcp_debug(f"Parsed arguments for {tool_name}: {arguments}")
 
                 self.io.tool_output(f"Calling MCP tool: {tool_name}")
 
@@ -1999,15 +2001,23 @@ The MCP tools provide more current information than your training data. Use them
 
         # Check for tool calls - could be from streaming (partial_response_tool_calls)
         # or from non-streaming response (completion.choices[0].message.tool_calls)
+        from aider.debug_logger import mcp_info, mcp_debug
+
+        mcp_debug("show_send_output: Checking for tool calls")
+        mcp_debug(f"  partial_response_tool_calls has {len(self.partial_response_tool_calls)} items")
+
         tool_calls = None
         try:
             if completion.choices[0].message.tool_calls:
                 tool_calls = completion.choices[0].message.tool_calls
-        except AttributeError:
+                mcp_info(f"Found {len(tool_calls)} tool calls from completion.message.tool_calls")
+        except AttributeError as e:
+            mcp_debug(f"No tool_calls in completion.message: {e}")
             pass
 
         # If no tool calls from completion, check if we collected them during streaming
         if not tool_calls and self.partial_response_tool_calls:
+            mcp_info(f"Using {len(self.partial_response_tool_calls)} tool calls from streaming")
             # Convert dict format to proper tool_call objects format
             from types import SimpleNamespace
             tool_calls = []
@@ -2133,6 +2143,8 @@ The MCP tools provide more current information than your training data. Use them
             try:
                 tool_calls = chunk.choices[0].delta.tool_calls
                 if tool_calls:
+                    from aider.debug_logger import mcp_debug
+                    mcp_debug(f"Stream chunk has {len(tool_calls)} tool_calls")
                     for tool_call in tool_calls:
                         # Tool calls come in chunks, need to accumulate them
                         index = tool_call.index if hasattr(tool_call, 'index') else 0
