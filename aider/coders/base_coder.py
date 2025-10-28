@@ -1921,11 +1921,14 @@ The MCP tools provide more current information than your training data. Use them
             return None
 
         results = []
+        non_mcp_tools = []
+
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
 
-            # Check if this is an MCP tool (prefixed with server name)
-            if "__" not in tool_name:
+            # Check if this is an MCP tool (prefixed with mcp__)
+            if not tool_name.startswith("mcp__"):
+                non_mcp_tools.append(tool_name)
                 continue
 
             try:
@@ -1962,6 +1965,13 @@ The MCP tools provide more current information than your training data. Use them
                     "name": tool_name,
                     "content": error_msg,
                 })
+
+        # Log if LLM tried to call tools without proper prefix
+        if non_mcp_tools and not results:
+            self.io.tool_warning(
+                f"LLM called tools without mcp__ prefix: {', '.join(non_mcp_tools)}\n"
+                f"Available MCP tools: {', '.join(self.mcp_client.list_tools())}"
+            )
 
         return results if results else None
 

@@ -199,8 +199,10 @@ class MCPServerConnection:
             # Convert to MCPToolWrapper instances
             self.tools = []
             for tool in tools_response.tools:
+                # Prefix tool name with mcp__servername__ for namespacing
+                prefixed_name = f"mcp__{self.server_name}__{tool.name}"
                 wrapper = MCPToolWrapper(
-                    name=tool.name,
+                    name=prefixed_name,
                     description=tool.description or "",
                     input_schema=tool.inputSchema or {},
                     server_name=self.server_name,
@@ -236,14 +238,22 @@ class MCPServerConnection:
                 "Not connected to server"
             )
 
-        # Check if tool exists
+        # Check if tool exists (with prefix)
         tool_exists = any(t.name == tool_name for t in self.tools)
         if not tool_exists:
             raise MCPToolNotFoundError(tool_name, self.server_name)
 
+        # Strip the mcp__servername__ prefix for the actual MCP call
+        # The MCP server expects the unprefixed tool name
+        prefix = f"mcp__{self.server_name}__"
+        if tool_name.startswith(prefix):
+            unprefixed_name = tool_name[len(prefix):]
+        else:
+            unprefixed_name = tool_name
+
         try:
-            # Call the tool
-            result = await self.session.call_tool(tool_name, arguments)
+            # Call the tool with unprefixed name
+            result = await self.session.call_tool(unprefixed_name, arguments)
             return result
 
         except Exception as e:
