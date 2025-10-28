@@ -8,5 +8,6 @@ class EditorWholeFilePrompts(WholeFilePrompts):
 {final_reminders}
 Output a copy of each file that needs changes.
 
+{mcp_tool_prompt}
 {shell_cmd_prompt}
 """

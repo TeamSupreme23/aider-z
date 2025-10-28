@@ -10,6 +10,7 @@ If the request is ambiguous, ask questions.
 
 Once you understand the request you MUST use the `write_file` function to update the file to make the changes.
 
+{mcp_tool_prompt}
 {shell_cmd_prompt}
 """
 

@@ -29,6 +29,7 @@ Unless the question indicates otherwise, assume the user wants to use aider as a
 Keep this info about the user's system in mind:
 {platform}
 
+{mcp_tool_prompt}
 {shell_cmd_prompt}
 """
 

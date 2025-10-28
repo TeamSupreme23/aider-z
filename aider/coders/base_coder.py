@@ -1165,6 +1165,42 @@ class Coder:
 
         return platform_text
 
+    def _format_mcp_tool_prompt(self):
+        """
+        Format MCP tool instructions for the system prompt.
+
+        Returns:
+            String with MCP tool usage instructions
+        """
+        if not self.mcp_tools:
+            return ""
+
+        tool_list = []
+        for tool in self.mcp_tools:
+            func = tool.get('function', {})
+            name = func.get('name', 'unknown')
+            desc = func.get('description', 'No description')
+            tool_list.append(f"  - {name}: {desc}")
+
+        tools_text = "\n".join(tool_list)
+
+        prompt = f"""
+# MCP Tools (Model Context Protocol)
+
+You have access to MCP tools for fetching up-to-date documentation and information:
+
+{tools_text}
+
+When to use MCP tools:
+- When you need current/latest documentation for libraries, frameworks, or APIs
+- When version-specific information is requested
+- When you're unsure about API syntax or recent changes
+- For accurate, up-to-date code examples
+
+The MCP tools provide more current information than your training data. Use them when appropriate.
+"""
+        return prompt.strip()
+
     def fmt_system_prompt(self, prompt):
         final_reminders = []
         if self.main_model.lazy:
@@ -1188,6 +1224,12 @@ class Coder:
                 platform=platform_text
             )
             rename_with_shell = ""
+
+        # Add MCP tool instructions if enabled
+        if self.enable_mcp and self.mcp_tools:
+            mcp_tool_prompt = self._format_mcp_tool_prompt()
+        else:
+            mcp_tool_prompt = ""
 
         if user_lang:  # user_lang is the result of self.get_user_language()
             language = user_lang
@@ -1213,6 +1255,7 @@ class Coder:
             shell_cmd_reminder=shell_cmd_reminder,
             go_ahead_tip=self.gpt_prompts.go_ahead_tip,
             language=language,
+            mcp_tool_prompt=mcp_tool_prompt,
         )
 
         return prompt

@@ -31,6 +31,7 @@ Once you understand the request you MUST:
 
 IMPORTANT: Each file MUST appear only once in the patch.
 Consolidate **all** edits for a given file into a single `*** [ACTION] File:` block.
+{mcp_tool_prompt}
 {shell_cmd_prompt}
 """
 

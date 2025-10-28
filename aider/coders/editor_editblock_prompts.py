@@ -10,5 +10,6 @@ Describe each change with a *SEARCH/REPLACE block* per the examples below.
 All changes to files must use this *SEARCH/REPLACE block* format.
 ONLY EVER RETURN CODE IN A *SEARCH/REPLACE BLOCK*!
 
+{mcp_tool_prompt}
 {shell_cmd_prompt}
 """
