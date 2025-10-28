@@ -43,6 +43,8 @@ from .dump import dump  # noqa: F401
 from aider.mcp.servers.context7 import Context7Connector
 
 
+from aider.mcp.servers.context7 import Context7Connector
+
 def check_config_files_for_yes(config_files):
     found = False
     for config_file in config_files:
@@ -458,8 +460,16 @@ def get_react_usestate_docs():
     docs = context7_connector.get_library_docs(context7CompatibleLibraryID=library_id, topic=topic)
     print(docs)
 
+def get_react_usestate_docs():
+    context7_connector = Context7Connector(api_key=os.environ.get("CONTEXT7_API_KEY"))
+    library_id = "/facebook/react"
+    topic = "useState"
+    docs = context7_connector.get_library_docs(context7CompatibleLibraryID=library_id, topic=topic)
+    print(docs)
+
 def main(argv=None, input=None, output=None, force_git_root=None, return_coder=False):
     report_uncaught_exceptions()
+    get_react_usestate_docs()
     get_react_usestate_docs()
 
     if argv is None:
