@@ -2122,18 +2122,41 @@ The MCP tools provide more current information than your training data. Use them
                 arguments = json.loads(tool_call.function.arguments)
                 mcp_debug(f"Parsed arguments for {tool_name}: {arguments}")
 
-                self.io.tool_output(f"Calling MCP tool: {tool_name}")
+                # Display tool call in a nice format
+                self.io.tool_output(f"\n{'='*80}")
+                self.io.tool_output(f"🔧 MCP Tool Call: {tool_name}")
+                self.io.tool_output(f"{'='*80}")
+                if arguments:
+                    self.io.tool_output(f"Arguments:")
+                    for key, value in arguments.items():
+                        self.io.tool_output(f"  • {key}: {value}")
+                self.io.tool_output("")
 
                 # Execute tool via MCP client
                 result = self.mcp_client.call_tool(tool_name, arguments)
 
                 # Format result for display
+                self.io.tool_output(f"✅ Result:")
+                self.io.tool_output(f"{'-'*80}")
+
+                # Pretty print the result based on its structure
                 if isinstance(result, dict):
-                    result_str = json.dumps(result, indent=2)
+                    # Handle MCP response format
+                    if 'content' in result and isinstance(result['content'], list):
+                        for item in result['content']:
+                            if hasattr(item, 'text'):
+                                # Format the text content nicely
+                                text = item.text
+                                # Add some spacing and formatting
+                                self.io.tool_output(text)
+                    else:
+                        result_str = json.dumps(result, indent=2)
+                        self.io.tool_output(result_str)
                 else:
                     result_str = str(result)
+                    self.io.tool_output(result_str)
 
-                self.io.tool_output(f"MCP tool result:\n{result_str}")
+                self.io.tool_output(f"{'-'*80}\n")
 
                 # Add result to chat history
                 results.append({
