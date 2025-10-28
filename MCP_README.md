@@ -29,13 +29,16 @@ npm install -g @upstash/context7-mcp
 
 **Note:** The configuration uses `npx -y @upstash/context7-mcp` which will automatically download and run the package on first use.
 
-### 3. Set API Key
+### 3. (Optional) Set API Key for Higher Rate Limits
+
+Context7 works without an API key! The API key is only needed for higher rate limits and private repositories.
 
 ```bash
+# Optional - only if you want higher rate limits
 export CONTEXT7_API_KEY="your-api-key-here"
 ```
 
-Get your API key from: https://context7.com/
+Get your API key from: https://context7.com/dashboard
 
 ### 4. Create Configuration File
 
@@ -48,8 +51,9 @@ mcp_servers:
     transport: stdio
     command: "npx"
     args: ["-y", "@upstash/context7-mcp"]
-    env:
-      CONTEXT7_API_KEY: "${CONTEXT7_API_KEY}"
+    # API key is optional - uncomment if you want higher rate limits:
+    # env:
+    #   CONTEXT7_API_KEY: "${CONTEXT7_API_KEY}"
     auto_connect: true
 
 tool_settings:
@@ -119,7 +123,9 @@ ui:
 ```bash
 # Auto-installed via npx, or pre-install with:
 npm install -g @upstash/context7-mcp
-export CONTEXT7_API_KEY="your-key"
+
+# API key is OPTIONAL (only for higher rate limits):
+export CONTEXT7_API_KEY="your-key"  # Optional!
 ```
 
 **Tools**:
@@ -134,8 +140,9 @@ context7:
   transport: stdio
   command: "npx"
   args: ["-y", "@upstash/context7-mcp"]
-  env:
-    CONTEXT7_API_KEY: "${CONTEXT7_API_KEY}"
+  # Optional env for higher rate limits:
+  # env:
+  #   CONTEXT7_API_KEY: "${CONTEXT7_API_KEY}"
   auto_connect: true
 ```
 

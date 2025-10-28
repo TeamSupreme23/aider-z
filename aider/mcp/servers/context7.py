@@ -24,7 +24,7 @@ class Context7Connector(BaseMCPServerConnector):
         """Initialize Context7 connector."""
         super().__init__()
         self.server_name = "context7"
-        self.requires_api_key = True
+        self.requires_api_key = False  # API key is optional!
         self.env_var = "CONTEXT7_API_KEY"
         self.transport = "stdio"
         self.command = "npx"
@@ -61,9 +61,13 @@ class Context7Connector(BaseMCPServerConnector):
         return """
 To use Context7:
 
-1. Visit https://context7.com/ to sign up for an API key
-2. Set the environment variable:
-   export CONTEXT7_API_KEY="your-api-key-here"
+1. Context7 works WITHOUT an API key!
+   Just ensure Node.js is installed and npx is available.
+
+2. (Optional) For higher rate limits and private repos:
+   - Visit https://context7.com/dashboard to get an API key
+   - Set the environment variable:
+     export CONTEXT7_API_KEY="your-api-key-here"
 
 3. Context7 will auto-install via npx, or you can pre-install:
    npm install -g @upstash/context7-mcp

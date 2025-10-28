@@ -100,16 +100,16 @@ else
     echo "Install Node.js from: https://nodejs.org/"
 fi
 
-# Test 7: Check CONTEXT7_API_KEY
-test_step "Checking CONTEXT7_API_KEY environment variable"
+# Test 7: Check CONTEXT7_API_KEY (optional)
+test_step "Checking CONTEXT7_API_KEY (optional - only for higher rate limits)"
 if [ -z "$CONTEXT7_API_KEY" ]; then
-    test_fail "CONTEXT7_API_KEY not set"
-    echo "Set it with: export CONTEXT7_API_KEY='your-api-key'"
-    echo "Get your key from: https://context7.com/"
-    echo ""
-    echo "You can still test Aider startup without the API key."
+    echo -e "${YELLOW}INFO:${NC} CONTEXT7_API_KEY not set (this is OK!)"
+    echo "Context7 works without an API key."
+    echo "API key only needed for higher rate limits and private repos."
+    echo "Get one at: https://context7.com/dashboard"
+    test_pass "Context7 will work without API key"
 else
-    test_pass "CONTEXT7_API_KEY is set"
+    test_pass "CONTEXT7_API_KEY is set (higher rate limits enabled)"
 fi
 
 # Test 8: Check configuration file

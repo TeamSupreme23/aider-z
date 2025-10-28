@@ -17,19 +17,21 @@ which npx
 npx --version
 ```
 
-### 2. Get Context7 API Key
+### 2. (Optional) Get Context7 API Key
 
-1. Go to https://context7.com/
+**NOTE: Context7 works WITHOUT an API key!** The API key is only needed for:
+- Higher rate limits
+- Access to private repositories
+
+If you want an API key:
+1. Go to https://context7.com/dashboard
 2. Sign up for an account
 3. Get your API key from the dashboard
 
-### 3. Set Environment Variable
+### 3. (Optional) Set Environment Variable
 
 ```bash
-# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
-export CONTEXT7_API_KEY="your-api-key-here"
-
-# Or set for current session
+# OPTIONAL - Only if you have an API key
 export CONTEXT7_API_KEY="your-api-key-here"
 
 # Verify it's set
