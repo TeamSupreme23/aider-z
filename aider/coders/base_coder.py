@@ -98,7 +98,7 @@ class Coder:
     num_malformed_responses = 0
     last_keyboard_interrupt = None
     num_reflections = 0
-    max_reflections = 3
+    max_reflections = float('inf')  # No limit on reflections
     edit_format = None
     yield_stream = False
     temperature = None
@@ -115,11 +115,18 @@ class Coder:
     cache_warming_thread = None
     num_cache_warming_pings = 0
     suggest_shell_commands = True
+    auto_execute_shell_commands = False
     detect_urls = True
     ignore_mentions = None
     chat_language = None
     commit_language = None
     file_watcher = None
+
+    # MCP (Model Context Protocol) integration
+    enable_mcp = False
+    mcp_config = None
+    mcp_client = None
+    mcp_tools = []
 
     @classmethod
     def create(
@@ -282,6 +289,9 @@ class Coder:
         cache_prompts=False,
         num_cache_warming_pings=0,
         suggest_shell_commands=True,
+        auto_execute_shell_commands=False,
+        enable_mcp=False,
+        mcp_config=None,
         chat_language=None,
         commit_language=None,
         detect_urls=True,
@@ -315,7 +325,35 @@ class Coder:
             self.file_watcher.coder = self
 
         self.suggest_shell_commands = suggest_shell_commands
+        self.auto_execute_shell_commands = auto_execute_shell_commands
         self.detect_urls = detect_urls
+
+        # Initialize MCP (Model Context Protocol) integration
+        self.enable_mcp = enable_mcp
+        self.mcp_config = mcp_config
+        self.mcp_client = None
+        self.mcp_tools = []
+
+        if self.enable_mcp:
+            try:
+                from aider.mcp import MCPClientManager
+                self.io.tool_output("Initializing MCP client...")
+                self.mcp_client = MCPClientManager(mcp_config)
+                self.mcp_client.initialize()
+                self.mcp_tools = self.mcp_client.list_tools()
+                self.io.tool_output(
+                    f"MCP initialized: {len(self.mcp_client.list_servers())} servers, "
+                    f"{len(self.mcp_tools)} tools available"
+                )
+            except ImportError:
+                self.io.tool_error(
+                    "MCP dependencies not installed. "
+                    "Run: pip install mcp nest-asyncio"
+                )
+                self.enable_mcp = False
+            except Exception as e:
+                self.io.tool_error(f"Failed to initialize MCP: {e}")
+                self.enable_mcp = False
 
         self.num_cache_warming_pings = num_cache_warming_pings
 
@@ -2447,14 +2485,23 @@ class Coder:
             1 for cmd in commands if cmd.strip() and not cmd.strip().startswith("#")
         )
         prompt = "Run shell command?" if command_count == 1 else "Run shell commands?"
-        if not self.io.confirm_ask(
-            prompt,
-            subject="\n".join(commands),
-            explicit_yes_required=True,
-            group=group,
-            allow_never=True,
-        ):
-            return
+
+        # Skip confirmation if auto_execute_shell_commands is enabled
+        if not self.auto_execute_shell_commands:
+            if not self.io.confirm_ask(
+                prompt,
+                subject="\n".join(commands),
+                explicit_yes_required=True,
+                group=group,
+                allow_never=True,
+            ):
+                return
+        else:
+            # Show what commands will be auto-executed
+            self.io.tool_output(f"Auto-executing shell command{'s' if command_count > 1 else ''}:")
+            for cmd in commands:
+                if cmd.strip() and not cmd.strip().startswith("#"):
+                    self.io.tool_output(f"  {cmd}")
 
         accumulated_output = ""
         for command in commands:
@@ -2470,10 +2517,12 @@ class Coder:
             if output:
                 accumulated_output += f"Output from {command}\n{output}\n"
 
-        if accumulated_output.strip() and self.io.confirm_ask(
-            "Add command output to the chat?", allow_never=True
-        ):
-            num_lines = len(accumulated_output.strip().splitlines())
-            line_plural = "line" if num_lines == 1 else "lines"
-            self.io.tool_output(f"Added {num_lines} {line_plural} of output to the chat.")
-            return accumulated_output
+        # Auto-add output to chat if auto_execute_shell_commands is enabled
+        if accumulated_output.strip():
+            if self.auto_execute_shell_commands or self.io.confirm_ask(
+                "Add command output to the chat?", allow_never=True
+            ):
+                num_lines = len(accumulated_output.strip().splitlines())
+                line_plural = "line" if num_lines == 1 else "lines"
+                self.io.tool_output(f"Added {num_lines} {line_plural} of output to the chat.")
+                return accumulated_output

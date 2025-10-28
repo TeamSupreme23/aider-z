@@ -810,6 +810,23 @@ def get_parser(default_config_files, git_root):
         help="Enable/disable suggesting shell commands (default: True)",
     )
     group.add_argument(
+        "--auto-execute-shell-commands",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Automatically execute shell commands without confirmation (default: False)",
+    )
+    group.add_argument(
+        "--enable-mcp",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable MCP (Model Context Protocol) tool integration (default: False)",
+    )
+    group.add_argument(
+        "--mcp-config",
+        metavar="MCP_CONFIG",
+        help="Path to MCP configuration file (default: ~/.aider.mcp.yaml or ./.aider.mcp.yaml)",
+    )
+    group.add_argument(
         "--fancy-input",
         action=argparse.BooleanOptionalAction,
         default=True,
