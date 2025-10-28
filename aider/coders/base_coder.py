@@ -328,34 +328,11 @@ class Coder:
         self.auto_execute_shell_commands = auto_execute_shell_commands
         self.detect_urls = detect_urls
 
-        # Initialize MCP (Model Context Protocol) integration
+        # Initialize MCP attributes (will be initialized after self.io is set)
         self.enable_mcp = enable_mcp
         self.mcp_config = mcp_config
         self.mcp_client = None
         self.mcp_tools = []
-
-        if self.enable_mcp:
-            try:
-                from aider.mcp import MCPClientManager
-                self.io.tool_output("Initializing MCP client...")
-                self.mcp_client = MCPClientManager(mcp_config)
-                self.mcp_client.initialize()
-                # Get tools in LiteLLM format for the LLM
-                self.mcp_tools = self.mcp_client.get_tools_for_llm()
-                tool_count = len(self.mcp_client.list_tools())
-                self.io.tool_output(
-                    f"MCP initialized: {len(self.mcp_client.list_servers())} servers, "
-                    f"{tool_count} tools available"
-                )
-            except ImportError:
-                self.io.tool_error(
-                    "MCP dependencies not installed. "
-                    "Run: pip install mcp nest-asyncio"
-                )
-                self.enable_mcp = False
-            except Exception as e:
-                self.io.tool_error(f"Failed to initialize MCP: {e}")
-                self.enable_mcp = False
 
         self.num_cache_warming_pings = num_cache_warming_pings
 
@@ -396,6 +373,30 @@ class Coder:
             self.done_messages = []
 
         self.io = io
+
+        # Initialize MCP (Model Context Protocol) integration now that self.io is available
+        if self.enable_mcp:
+            try:
+                from aider.mcp import MCPClientManager
+                self.io.tool_output("Initializing MCP client...")
+                self.mcp_client = MCPClientManager(mcp_config)
+                self.mcp_client.initialize()
+                # Get tools in LiteLLM format for the LLM
+                self.mcp_tools = self.mcp_client.get_tools_for_llm()
+                tool_count = len(self.mcp_client.list_tools())
+                self.io.tool_output(
+                    f"MCP initialized: {len(self.mcp_client.list_servers())} servers, "
+                    f"{tool_count} tools available"
+                )
+            except ImportError:
+                self.io.tool_error(
+                    "MCP dependencies not installed. "
+                    "Run: pip install mcp nest-asyncio"
+                )
+                self.enable_mcp = False
+            except Exception as e:
+                self.io.tool_error(f"Failed to initialize MCP: {e}")
+                self.enable_mcp = False
 
         self.shell_commands = []
 
