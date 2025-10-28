@@ -40,6 +40,8 @@ from aider.watch import FileWatcher
 
 from .dump import dump  # noqa: F401
 
+from aider.mcp.servers.context7 import Context7Connector
+
 
 def check_config_files_for_yes(config_files):
     found = False
