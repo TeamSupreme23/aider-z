@@ -415,7 +415,7 @@ class GUI:
 
         # This duplicates logic from within Coder
         self.num_reflections = 0
-        self.max_reflections = 3
+        self.max_reflections = float('inf')  # No limit on reflections
 
         while prompt:
             with self.messages.chat_message("assistant"):

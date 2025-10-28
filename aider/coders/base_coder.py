@@ -340,10 +340,12 @@ class Coder:
                 self.io.tool_output("Initializing MCP client...")
                 self.mcp_client = MCPClientManager(mcp_config)
                 self.mcp_client.initialize()
-                self.mcp_tools = self.mcp_client.list_tools()
+                # Get tools in LiteLLM format for the LLM
+                self.mcp_tools = self.mcp_client.get_tools_for_llm()
+                tool_count = len(self.mcp_client.list_tools())
                 self.io.tool_output(
                     f"MCP initialized: {len(self.mcp_client.list_servers())} servers, "
-                    f"{len(self.mcp_tools)} tools available"
+                    f"{tool_count} tools available"
                 )
             except ImportError:
                 self.io.tool_error(
@@ -1826,11 +1828,15 @@ class Coder:
 
         completion = None
         try:
+            # Pass MCP tools if available
+            mcp_tools = self.mcp_tools if self.enable_mcp and self.mcp_tools else None
+
             hash_object, completion = model.send_completion(
                 messages,
                 functions,
                 self.stream,
                 self.temperature,
+                mcp_tools=mcp_tools,
             )
             self.chat_completion_call_hashes.append(hash_object.hexdigest())
 
@@ -1865,6 +1871,56 @@ class Coder:
                 if args:
                     self.io.ai_output(json.dumps(args, indent=4))
 
+    def handle_mcp_tool_calls(self, tool_calls):
+        """Handle MCP tool calls from LLM response."""
+        if not self.enable_mcp or not self.mcp_client:
+            return None
+
+        results = []
+        for tool_call in tool_calls:
+            tool_name = tool_call.function.name
+
+            # Check if this is an MCP tool (prefixed with server name)
+            if "__" not in tool_name:
+                continue
+
+            try:
+                # Parse arguments
+                arguments = json.loads(tool_call.function.arguments)
+
+                self.io.tool_output(f"Calling MCP tool: {tool_name}")
+
+                # Execute tool via MCP client
+                result = self.mcp_client.call_tool(tool_name, arguments)
+
+                # Format result for display
+                if isinstance(result, dict):
+                    result_str = json.dumps(result, indent=2)
+                else:
+                    result_str = str(result)
+
+                self.io.tool_output(f"MCP tool result:\n{result_str}")
+
+                # Add result to chat history
+                results.append({
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": result_str,
+                })
+
+            except Exception as e:
+                error_msg = f"MCP tool call failed: {e}"
+                self.io.tool_error(error_msg)
+                results.append({
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": error_msg,
+                })
+
+        return results if results else None
+
     def show_send_output(self, completion):
         # Stop spinner once we have a response
         self._stop_waiting_spinner()
@@ -1880,6 +1936,43 @@ class Coder:
         show_content_err = None
         try:
             if completion.choices[0].message.tool_calls:
+                # Handle MCP tool calls
+                tool_calls = completion.choices[0].message.tool_calls
+                mcp_results = self.handle_mcp_tool_calls(tool_calls)
+
+                if mcp_results:
+                    # Add assistant message with tool calls to history
+                    self.cur_messages.append({
+                        "role": "assistant",
+                        "content": completion.choices[0].message.content or "",
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                }
+                            }
+                            for tc in tool_calls
+                        ]
+                    })
+                    # Add tool results to chat history
+                    self.cur_messages.extend(mcp_results)
+
+                    # Continue the conversation with tool results
+                    # Send follow-up request with tool results included
+                    chunks = self.format_messages()
+                    messages = chunks.all_messages()
+
+                    try:
+                        # Recursively call send to continue conversation
+                        yield from self.send(messages, functions=self.functions)
+                    except Exception as e:
+                        self.io.tool_error(f"Error continuing after MCP tool call: {e}")
+                    return
+
+                # Not an MCP tool call, handle as normal function call
                 self.partial_response_function_call = (
                     completion.choices[0].message.tool_calls[0].function
                 )

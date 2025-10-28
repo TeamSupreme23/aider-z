@@ -946,7 +946,7 @@ class Model(ModelSettings):
 
             os.environ[openai_api_key] = token
 
-    def send_completion(self, messages, functions, stream, temperature=None):
+    def send_completion(self, messages, functions, stream, temperature=None, mcp_tools=None):
         if os.environ.get("AIDER_SANITY_CHECK_TURNS"):
             sanity_check_messages(messages)
 
@@ -967,10 +967,26 @@ class Model(ModelSettings):
 
             kwargs["temperature"] = temperature
 
+        # Handle traditional functions and MCP tools
+        tools_list = []
+        tool_choice = None
+
         if functions is not None:
             function = functions[0]
-            kwargs["tools"] = [dict(type="function", function=function)]
-            kwargs["tool_choice"] = {"type": "function", "function": {"name": function["name"]}}
+            tools_list.append(dict(type="function", function=function))
+            tool_choice = {"type": "function", "function": {"name": function["name"]}}
+
+        # Add MCP tools if provided
+        if mcp_tools:
+            tools_list.extend(mcp_tools)
+            # If no specific function required, let LLM choose
+            if tool_choice is None:
+                tool_choice = "auto"
+
+        if tools_list:
+            kwargs["tools"] = tools_list
+            if tool_choice:
+                kwargs["tool_choice"] = tool_choice
         if self.extra_params:
             kwargs.update(self.extra_params)
         if self.is_ollama() and "num_ctx" not in kwargs:
