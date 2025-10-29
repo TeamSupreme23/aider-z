@@ -26,6 +26,11 @@ from aider.utils import is_image_file
 
 from .dump import dump  # noqa: F401
 
+try:
+    import requests
+except ImportError:
+    requests = None
+
 
 class SwitchCoder(Exception):
     def __init__(self, placeholder=None, **kwargs):
@@ -251,6 +256,175 @@ class Commands:
             dict(role="user", content=content),
             dict(role="assistant", content="Ok."),
         ]
+
+    def cmd_search(self, args):
+        "Search the web using DuckDuckGo and add results to the chat"
+
+        query = args.strip()
+        if not query:
+            self.io.tool_error("Please provide a search query.")
+            return
+
+        if not requests:
+            self.io.tool_error(
+                "The 'requests' package is required for web search. "
+                "Install it with: pip install requests"
+            )
+            return
+
+        try:
+            # Use DuckDuckGo Instant Answer API (no API key required)
+            search_url = "https://api.duckduckgo.com/"
+            params = {
+                "q": query,
+                "format": "json",
+                "no_html": 1,
+                "skip_disambig": 1,
+            }
+
+            response = requests.get(search_url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            # Build the search results content
+            results = []
+            results_count = 0  # Track actual number of results
+
+            # Add abstract if available
+            if data.get("Abstract"):
+                results.append(f"**Summary:**\n{data['Abstract']}")
+                if data.get("AbstractSource"):
+                    results.append(f"\n*Source: {data['AbstractSource']}*")
+                if data.get("AbstractURL"):
+                    results.append(f"\n*URL: {data['AbstractURL']}*")
+                results_count = 1
+
+            # Add related topics
+            if data.get("RelatedTopics"):
+                related = []
+                for topic in data["RelatedTopics"][:5]:  # Limit to 5 results
+                    if isinstance(topic, dict) and "Text" in topic:
+                        text = topic.get("Text", "")
+                        url = topic.get("FirstURL", "")
+                        if text:
+                            related.append(f"- {text}")
+                            if url:
+                                related.append(f"  {url}")
+
+                if related:
+                    results.append("\n\n**Related Topics:**\n" + "\n".join(related))
+                    results_count = len(data.get("RelatedTopics", []))
+
+            if not results:
+                # If DuckDuckGo Instant Answer API didn't return results,
+                # try scraping HTML search results
+                try:
+                    html_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(query)}"
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                    html_response = requests.get(html_url, headers=headers, timeout=10)
+                    html_response.raise_for_status()
+
+                    # Parse HTML to extract search results
+                    html_content = html_response.text
+
+                    # Try BeautifulSoup if available, otherwise use regex
+                    try:
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(html_content, 'html.parser')
+
+                        # Find all result divs
+                        result_divs = soup.find_all('div', class_='result')
+
+                        if result_divs:
+                            results.append("**Web Search Results:**\n")
+                            import urllib.parse
+                            for i, div in enumerate(result_divs[:5], 1):
+                                # Extract title
+                                title_tag = div.find('a', class_='result__a')
+                                title = title_tag.get_text(strip=True) if title_tag else "No title"
+                                url = title_tag.get('href', '') if title_tag else ''
+
+                                # Decode DuckDuckGo redirect URL to get actual URL
+                                if url.startswith('//duckduckgo.com/l/?uddg='):
+                                    # Extract the uddg parameter
+                                    try:
+                                        parsed = urllib.parse.urlparse('https:' + url)
+                                        params = urllib.parse.parse_qs(parsed.query)
+                                        if 'uddg' in params:
+                                            url = urllib.parse.unquote(params['uddg'][0])
+                                    except:
+                                        pass  # Keep original URL if decoding fails
+
+                                # Extract snippet
+                                snippet_tag = div.find('a', class_='result__snippet')
+                                snippet = snippet_tag.get_text(strip=True) if snippet_tag else "No description"
+
+                                results.append(f"\n{i}. **{title}**")
+                                results.append(f"   {snippet}")
+                                if url:
+                                    results.append(f"   URL: {url}")
+
+                            results_count = len(result_divs[:5])
+                        else:
+                            self.io.tool_warning(
+                                "No search results found. Try a different query."
+                            )
+                            return
+
+                    except ImportError:
+                        # Fallback to regex if BeautifulSoup not available
+                        import re
+
+                        result_pattern = r'<a rel="nofollow" class="result__a" href="([^"]+)">([^<]+)</a>.*?<a class="result__snippet" href="[^"]+">([^<]+)</a>'
+                        matches = re.findall(result_pattern, html_content, re.DOTALL)
+
+                        if matches:
+                            results.append("**Web Search Results:**\n")
+                            for i, (url, title, snippet) in enumerate(matches[:5], 1):
+                                snippet = snippet.strip().replace('\n', ' ')
+                                title = title.strip()
+                                results.append(f"\n{i}. **{title}**")
+                                results.append(f"   {snippet}")
+                                results.append(f"   URL: {url}")
+
+                            results_count = len(matches[:5])
+                        else:
+                            self.io.tool_warning(
+                                "No search results found. Try a different query."
+                            )
+                            return
+
+                except Exception as e:
+                    self.io.tool_warning(
+                        f"Search failed: {str(e)}. Consider using /web to scrape specific URLs instead."
+                    )
+                    return
+
+            content = f"Web search results for '{query}':\n\n" + "\n".join(results)
+
+            # Display the search results to the user
+            # Use print to ensure output appears immediately
+            print("\n" + "=" * 60)
+            print("📋 SEARCH RESULTS PREVIEW:")
+            print("=" * 60)
+            print(content)
+            print("=" * 60)
+            print(f"✓ Added {results_count} results to chat for LLM.\n")
+
+            # Also log via IO for consistency
+            self.io.tool_output("\n[Search results displayed above]")
+
+            self.coder.cur_messages += [
+                dict(role="user", content=content),
+                dict(role="assistant", content="Ok."),
+            ]
+
+        except requests.RequestException as e:
+            self.io.tool_error(f"Search failed: {str(e)}")
+        except Exception as e:
+            self.io.tool_error(f"Unexpected error during search: {str(e)}")
 
     def is_command(self, inp):
         return inp[0] in "/!"

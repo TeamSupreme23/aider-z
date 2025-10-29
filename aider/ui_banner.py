@@ -28,12 +28,12 @@ SPACE_INVADER_COMPACT = """
 """
 
 
-def create_magnifying_glass(color: str = "purple") -> Text:
+def create_magnifying_glass(color: str = "grey70") -> Text:
     """
     Create a colored magnifying glass icon.
 
     Args:
-        color: Color name or hex code (default: "purple")
+        color: Color name or hex code (default: "grey70")
 
     Returns:
         Rich Text object with colored icon
@@ -106,7 +106,7 @@ def create_startup_banner(
     git_info: str = None,
     repo_map_info: str = None,
     console: Console = None,
-    accent_color: str = "#9575cd"  # Darker purple
+    accent_color: str = "grey70"  # Grey
 ) -> None:
     """
     Display a Claude Code-style startup banner for Aider.
@@ -212,11 +212,22 @@ def create_startup_banner(
     # Top border
     console.print(f"[{accent_color}]╭{'─' * (banner_width - 2)}╮[/]")
 
-    # Title and icon row with Space Invaders style enemy
-    icon = "◁▷"  # Space Invaders crab-like enemy
-    title_line = f" {icon}  Aider"
-    padding = content_width - len(title_line)
-    console.print(f"[{accent_color}]│ {title_line}{' ' * max(0, padding)} │[/]")
+    # ASCII Art Title
+    ascii_art = [
+        " _________ .__                   .___        ____  __.__.__  .__                ",
+        " \\_   ___ \\|  | _____   __ __  __| _/____   |    |/ _|__|  | |  |   ___________ ",
+        " /    \\  \\/|  | \\__  \\ |  |  \\/ __ |/ __ \\  |      < |  |  | |  | _/ __ \\_  __ \\",
+        " \\     \\___|  |__/ __ \\|  |  / /_/ \\  ___/  |    |  \\|  |  |_|  |_\\  ___/|  | \\/",
+        "  \\______  /____(____  /____/\\____ |\\___  > |____|__ \\__|____/____/\\___  >__|   ",
+        "         \\/          \\/           \\/    \\/          \\/                 \\/       "
+    ]
+
+    for line in ascii_art:
+        # Truncate line if it's too long for the banner
+        if len(line) > content_width:
+            line = line[:content_width]
+        padding = content_width - len(line)
+        console.print(f"[{accent_color}]│ {line}{' ' * max(0, padding)} │[/]")
 
     # Welcome message
     welcome = "Welcome back!"
@@ -259,7 +270,7 @@ def create_simple_startup_banner(
     model: str = "Claude API",
     working_dir: str = ".",
     console: Console = None,
-    accent_color: str = "#9575cd"
+    accent_color: str = "grey70"
 ) -> None:
     """
     Display a simpler startup banner (minimal style).
@@ -284,7 +295,7 @@ def create_simple_startup_banner(
     console.print()
 
 
-def display_quick_tips(console: Console = None, accent_color: str = "#9575cd") -> None:
+def display_quick_tips(console: Console = None, accent_color: str = "grey70") -> None:
     """
     Display quick tips for getting started.
 

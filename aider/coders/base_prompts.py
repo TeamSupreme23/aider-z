@@ -56,5 +56,10 @@ Do not edit these files!
     no_shell_cmd_prompt = ""
     no_shell_cmd_reminder = ""
 
+    web_search_prompt = ""
+    web_search_reminder = ""
+    scrape_url_prompt = ""
+    scrape_url_reminder = ""
+
     rename_with_shell = ""
     go_ahead_tip = ""

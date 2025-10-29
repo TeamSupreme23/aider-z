@@ -35,6 +35,9 @@ google-generativeai
 mcp>=1.0.0
 nest-asyncio>=1.5.0
 
+# Playwright for web scraping
+playwright>=1.54.0
+
 # The proper dependency is networkx[default], but this brings
 # in matplotlib and a bunch of other deps
 # https://github.com/networkx/networkx/blob/d7132daa8588f653eacac7a5bae1ee85a183fa43/pyproject.toml#L57

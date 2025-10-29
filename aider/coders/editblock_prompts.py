@@ -1,6 +1,7 @@
 # flake8: noqa: E501
 
 from . import shell
+from . import websearch
 from .base_prompts import CoderPrompts
 
 
@@ -29,6 +30,8 @@ You can keep asking if you then decide you need to edit more files.
 All changes to files must use this *SEARCH/REPLACE block* format.
 ONLY EVER RETURN CODE IN A *SEARCH/REPLACE BLOCK*!
 {mcp_tool_prompt}
+{web_search_prompt}
+{scrape_url_prompt}
 {shell_cmd_prompt}
 """
     example_messages = [
@@ -158,6 +161,8 @@ If you want to put code in a new file, use a *SEARCH/REPLACE block* with:
 - The new file's contents in the `REPLACE` section
 
 {rename_with_shell}{go_ahead_tip}{final_reminders}ONLY EVER RETURN CODE IN A *SEARCH/REPLACE BLOCK*!
+{web_search_reminder}
+{scrape_url_reminder}
 {shell_cmd_reminder}
 """
 
@@ -173,3 +178,8 @@ The user will say when they've applied your edits. If they haven't explicitly co
     shell_cmd_prompt = shell.shell_cmd_prompt
     no_shell_cmd_prompt = shell.no_shell_cmd_prompt
     shell_cmd_reminder = shell.shell_cmd_reminder
+
+    web_search_prompt = websearch.web_search_prompt
+    web_search_reminder = websearch.web_search_reminder
+    scrape_url_prompt = websearch.scrape_url_prompt
+    scrape_url_reminder = websearch.scrape_url_reminder

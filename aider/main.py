@@ -535,14 +535,14 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         models.request_timeout = args.timeout
 
     if args.dark_mode:
-        args.user_input_color = "#9575cd"
+        args.user_input_color = "#B3B3B3"
         args.tool_error_color = "#f28b82"
         args.tool_warning_color = "#fdd663"
         args.assistant_output_color = "#81c995"
         args.code_theme = "monokai"
 
     if args.light_mode:
-        args.user_input_color = "green"
+        args.user_input_color = "#B3B3B3"
         args.tool_error_color = "red"
         args.tool_warning_color = "#FFA500"
         args.assistant_output_color = "blue"
@@ -1052,7 +1052,7 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
                 git_info=git_info,
                 repo_map_info=repo_map_info,
                 console=io.console,
-                accent_color="#9575cd"  # Darker purple
+                accent_color="grey70"  # Grey
             )
     except Exception as err:
         # If banner fails, just continue without it

@@ -19,14 +19,14 @@ logger.setLevel(logging.DEBUG)
 mcp_logger = logging.getLogger("aider.mcp_debug")
 mcp_logger.setLevel(logging.DEBUG)
 
-# Create file handler for shell debug
+# Create file handler for shell debug (w = replace file each run)
 log_file = os.path.join(LOG_DIR, "shell_debug.log")
-file_handler = logging.FileHandler(log_file, mode='a')
+file_handler = logging.FileHandler(log_file, mode='w')
 file_handler.setLevel(logging.DEBUG)
 
-# Create file handler for MCP debug
+# Create file handler for MCP debug (w = replace file each run)
 mcp_log_file = os.path.join(LOG_DIR, "mcp_debug.log")
-mcp_file_handler = logging.FileHandler(mcp_log_file, mode='a')
+mcp_file_handler = logging.FileHandler(mcp_log_file, mode='w')
 mcp_file_handler.setLevel(logging.DEBUG)
 
 # Create formatter

@@ -1272,6 +1272,31 @@ The MCP tools provide more current information than your training data. Use them
         else:
             mcp_tool_prompt = ""
 
+        # Add web search instructions
+        web_search_prompt = self.gpt_prompts.web_search_prompt
+        web_search_reminder = self.gpt_prompts.web_search_reminder
+
+        # Add URL scraping instructions
+        scrape_url_prompt = self.gpt_prompts.scrape_url_prompt
+        scrape_url_reminder = self.gpt_prompts.scrape_url_reminder
+
+        from aider import debug_logger
+        debug_logger.debug("=" * 80)
+        debug_logger.debug("SYSTEM PROMPT: Web search instructions")
+        debug_logger.debug(f"web_search_prompt is empty: {not web_search_prompt}")
+        debug_logger.debug(f"web_search_reminder is empty: {not web_search_reminder}")
+        if web_search_prompt:
+            debug_logger.debug(f"web_search_prompt preview: {web_search_prompt[:200]}")
+        if web_search_reminder:
+            debug_logger.debug(f"web_search_reminder preview: {web_search_reminder[:200]}")
+        debug_logger.debug(f"scrape_url_prompt is empty: {not scrape_url_prompt}")
+        debug_logger.debug(f"scrape_url_reminder is empty: {not scrape_url_reminder}")
+        if scrape_url_prompt:
+            debug_logger.debug(f"scrape_url_prompt preview: {scrape_url_prompt[:200]}")
+        if scrape_url_reminder:
+            debug_logger.debug(f"scrape_url_reminder preview: {scrape_url_reminder[:200]}")
+        debug_logger.debug("=" * 80)
+
         if user_lang:  # user_lang is the result of self.get_user_language()
             language = user_lang
         else:
@@ -1297,6 +1322,10 @@ The MCP tools provide more current information than your training data. Use them
             go_ahead_tip=self.gpt_prompts.go_ahead_tip,
             language=language,
             mcp_tool_prompt=mcp_tool_prompt,
+            web_search_prompt=web_search_prompt,
+            web_search_reminder=web_search_reminder,
+            scrape_url_prompt=scrape_url_prompt,
+            scrape_url_reminder=scrape_url_reminder,
         )
 
         return prompt
@@ -1948,6 +1977,38 @@ The MCP tools provide more current information than your training data. Use them
                 yield from self.show_send_output_stream(completion)
                 mcp_debug("send(): Streaming complete, checking for tool calls")
 
+                # First, check for web search requests
+                if self.partial_response_content:
+                    search_performed = self.detect_and_execute_websearch(self.partial_response_content)
+                    if search_performed:
+                        # Search results have been added to chat, continue conversation
+                        # so LLM can see the results and respond (e.g., choose URLs to scrape)
+                        from aider import debug_logger
+                        debug_logger.debug("WEBSEARCH: Continuing conversation after search")
+                        chunks = self.format_messages()
+                        messages = chunks.all_messages()
+                        try:
+                            yield from self.send(messages, functions=self.functions)
+                        except Exception as e:
+                            self.io.tool_error(f"Error continuing after web search: {e}")
+                        return
+
+                # Second, check for URL scraping requests
+                if self.partial_response_content:
+                    scrape_performed = self.detect_and_execute_scrapeurl(self.partial_response_content)
+                    if scrape_performed:
+                        # Scraped content has been added to chat, continue conversation
+                        # so LLM can use the content to answer the original question
+                        from aider import debug_logger
+                        debug_logger.debug("SCRAPEURL: Continuing conversation after scraping")
+                        chunks = self.format_messages()
+                        messages = chunks.all_messages()
+                        try:
+                            yield from self.send(messages, functions=self.functions)
+                        except Exception as e:
+                            self.io.tool_error(f"Error continuing after URL scraping: {e}")
+                        return
+
                 # After streaming, check if we collected any tool calls from the API
                 tool_calls_to_process = None
 
@@ -2039,6 +2100,173 @@ The MCP tools provide more current information than your training data. Use them
                 args = self.parse_partial_args()
                 if args:
                     self.io.ai_output(json.dumps(args, indent=4))
+
+    def detect_and_execute_websearch(self, content):
+        """
+        Detect websearch requests in LLM output and execute them.
+
+        Returns:
+            True if search was performed, False otherwise
+        """
+        import re
+        from aider import debug_logger
+
+        debug_logger.debug("=" * 80)
+        debug_logger.debug("WEBSEARCH DETECTION: Starting")
+        debug_logger.debug(f"Content length: {len(content)}")
+        debug_logger.debug(f"Content preview (first 500 chars): {content[:500]}")
+
+        # Pattern to match ```websearch\nquery\n```
+        pattern = r'```websearch\s*\n(.*?)\n```'
+        matches = re.findall(pattern, content, re.DOTALL)
+
+        debug_logger.debug(f"WEBSEARCH: Pattern matches found: {len(matches)}")
+
+        if matches:
+            debug_logger.debug(f"WEBSEARCH: Matched queries: {matches}")
+        else:
+            debug_logger.debug("WEBSEARCH: No matches found. Checking for common issues...")
+            # Check if there's any triple backtick blocks
+            backtick_blocks = re.findall(r'```(\w+)?\s*\n(.*?)\n```', content, re.DOTALL)
+            if backtick_blocks:
+                debug_logger.debug(f"WEBSEARCH: Found {len(backtick_blocks)} code blocks with languages: {[b[0] for b in backtick_blocks]}")
+            else:
+                debug_logger.debug("WEBSEARCH: No code blocks found at all")
+
+        if not matches:
+            debug_logger.debug("WEBSEARCH DETECTION: Completed (no searches)")
+            debug_logger.debug("=" * 80)
+            return False
+
+        # Execute each search
+        for i, query in enumerate(matches):
+            query = query.strip()
+            debug_logger.debug(f"WEBSEARCH: Processing query {i+1}/{len(matches)}: '{query}'")
+
+            if not query:
+                debug_logger.debug(f"WEBSEARCH: Query {i+1} is empty, skipping")
+                continue
+
+            # Execute the search using the command we created
+            if hasattr(self, 'commands') and self.commands:
+                print(f"\n🔍 Executing web search: {query}\n")  # Force immediate output
+                self.io.tool_output(f"🔍 Executing web search: {query}")
+                debug_logger.debug(f"WEBSEARCH: Executing search via commands.cmd_search()")
+                try:
+                    self.commands.cmd_search(query)
+                    debug_logger.debug(f"WEBSEARCH: Search completed successfully")
+                    print("\n✅ Web search completed\n")  # Confirm completion
+                except Exception as e:
+                    debug_logger.error(f"WEBSEARCH: Search failed with error: {str(e)}")
+                    import traceback
+                    debug_logger.error(traceback.format_exc())
+                    self.io.tool_error(f"Web search failed: {str(e)}")
+            else:
+                debug_logger.warning("WEBSEARCH: Commands object not available")
+                self.io.tool_warning("Web search requested but commands not available")
+
+        # Remove the websearch blocks from the content to prevent loops
+        # Replace with a marker showing search was executed
+        cleaned_content = re.sub(pattern, '[Web search executed]', content, flags=re.DOTALL)
+        debug_logger.debug(f"WEBSEARCH: Cleaned content length: {len(cleaned_content)}")
+        self.partial_response_content = cleaned_content
+
+        # Add the cleaned response to chat history
+        self.cur_messages.append({
+            "role": "assistant",
+            "content": cleaned_content
+        })
+        debug_logger.debug("WEBSEARCH: Added cleaned response to chat history")
+
+        debug_logger.debug("WEBSEARCH DETECTION: Completed (searches executed)")
+        debug_logger.debug("=" * 80)
+        return True
+
+    def detect_and_execute_scrapeurl(self, content):
+        """
+        Detect scrapeurl requests in LLM output and execute them.
+
+        Returns:
+            True if scraping was performed, False otherwise
+        """
+        import re
+        from aider import debug_logger
+
+        debug_logger.debug("=" * 80)
+        debug_logger.debug("SCRAPEURL DETECTION: Starting")
+        debug_logger.debug(f"Content length: {len(content)}")
+        debug_logger.debug(f"Content preview (first 500 chars): {content[:500]}")
+
+        # Pattern to match ```scrapeurl\nurl\n```
+        pattern = r'```scrapeurl\s*\n(.*?)\n```'
+        matches = re.findall(pattern, content, re.DOTALL)
+
+        debug_logger.debug(f"SCRAPEURL: Pattern matches found: {len(matches)}")
+
+        if matches:
+            debug_logger.debug(f"SCRAPEURL: Matched URLs: {matches}")
+        else:
+            debug_logger.debug("SCRAPEURL: No matches found")
+
+        if not matches:
+            debug_logger.debug("SCRAPEURL DETECTION: Completed (no scraping)")
+            debug_logger.debug("=" * 80)
+            return False
+
+        # Limit to 3 URLs at once
+        if len(matches) > 3:
+            self.io.tool_warning(f"Found {len(matches)} URLs, limiting to first 3")
+            matches = matches[:3]
+
+        # Execute each scrape
+        for i, url in enumerate(matches):
+            url = url.strip()
+            debug_logger.debug(f"SCRAPEURL: Processing URL {i+1}/{len(matches)}: '{url}'")
+
+            if not url:
+                debug_logger.debug(f"SCRAPEURL: URL {i+1} is empty, skipping")
+                continue
+
+            # Validate URL format
+            if not url.startswith(('http://', 'https://')):
+                debug_logger.warning(f"SCRAPEURL: Invalid URL format: {url}")
+                self.io.tool_warning(f"Invalid URL format (must start with http:// or https://): {url}")
+                continue
+
+            # Execute the scrape using the command we have
+            if hasattr(self, 'commands') and self.commands:
+                print(f"\n🌐 Scraping URL: {url}\n")  # Force immediate output
+                self.io.tool_output(f"🌐 Scraping URL: {url}")
+                debug_logger.debug(f"SCRAPEURL: Executing scrape via commands.cmd_web()")
+                try:
+                    self.commands.cmd_web(url)
+                    debug_logger.debug(f"SCRAPEURL: Scrape completed successfully")
+                    print(f"\n✅ URL scraping completed\n")  # Confirm completion
+                except Exception as e:
+                    debug_logger.error(f"SCRAPEURL: Scrape failed with error: {str(e)}")
+                    import traceback
+                    debug_logger.error(traceback.format_exc())
+                    self.io.tool_error(f"URL scraping failed: {str(e)}")
+            else:
+                debug_logger.warning("SCRAPEURL: Commands object not available")
+                self.io.tool_warning("URL scraping requested but commands not available")
+
+        # Remove the scrapeurl blocks from the content to prevent loops
+        # Replace with a marker showing scraping was executed
+        cleaned_content = re.sub(pattern, '[URL scraped]', content, flags=re.DOTALL)
+        debug_logger.debug(f"SCRAPEURL: Cleaned content length: {len(cleaned_content)}")
+        self.partial_response_content = cleaned_content
+
+        # Add the cleaned response to chat history
+        self.cur_messages.append({
+            "role": "assistant",
+            "content": cleaned_content
+        })
+        debug_logger.debug("SCRAPEURL: Added cleaned response to chat history")
+
+        debug_logger.debug("SCRAPEURL DETECTION: Completed (scraping executed)")
+        debug_logger.debug("=" * 80)
+        return True
 
     def parse_text_tool_calls(self, content):
         """
