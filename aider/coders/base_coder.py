@@ -375,18 +375,20 @@ class Coder:
         self.io = io
 
         # Initialize MCP (Model Context Protocol) integration now that self.io is available
+        self.mcp_info = None  # Will be set if MCP initializes successfully
         if self.enable_mcp:
             try:
                 from aider.mcp import MCPClientManager
-                self.io.tool_output("Initializing MCP client...")
+                # Don't print "Initializing..." here - it will show in the banner
                 self.mcp_client = MCPClientManager(mcp_config)
                 self.mcp_client.initialize()
                 # Get tools in LiteLLM format for the LLM
                 self.mcp_tools = self.mcp_client.get_tools_for_llm()
                 tool_count = len(self.mcp_client.list_tools())
-                self.io.tool_output(
-                    f"MCP initialized: {len(self.mcp_client.list_servers())} servers, "
-                    f"{tool_count} tools available"
+                # Store MCP info for banner display (instead of printing here)
+                self.mcp_info = (
+                    f"{len(self.mcp_client.list_servers())} servers, "
+                    f"{tool_count} tools"
                 )
             except ImportError:
                 self.io.tool_error(
@@ -1212,37 +1214,258 @@ You have access to MCP tools for fetching up-to-date documentation and informati
 
 {tools_text}
 
-## How to Use MCP Tools
+## How to Use MCP Tools - CRITICAL INSTRUCTIONS
 
-**IMPORTANT**: To call an MCP tool, you MUST use the function calling mechanism, NOT text output.
+**YOU MUST USE THE NATIVE FUNCTION CALLING API - NOT TEXT OUTPUT**
 
-When you need to call a tool:
-1. Use the actual function calling API (tool_calls in your response)
-2. DO NOT output JSON text like {{"name": "tool_name", "arguments": {{...}}}}
-3. The tool will execute and return results automatically
-4. You will receive the results in a subsequent message
+To call an MCP tool, you MUST make an actual function call using the tool_calls mechanism built into your API.
+DO NOT write the tool name or arguments as text in your response.
 
-Example of CORRECT usage:
-User: "Get React useState documentation"
-Assistant: [Uses tool_calls API to request mcp__context7__resolve-library-id - no text output]
-System: [Aider executes the tool and returns results]
-Assistant: "Based on the documentation, React's useState hook..."
+### ✅ CORRECT Usage Pattern:
 
-Example of INCORRECT usage:
-User: "Get React useState documentation"
-Assistant: {{"name": "mcp__context7__resolve-library-id", "arguments": {{"libraryName": "React"}}}}  ← WRONG! Don't output JSON text.
+User: "Search this codebase for functions containing 'validate'"
+Assistant: [Makes actual function call to mcp__codebase__search_function with parameter pattern="validate"]
+[Note: You make a real tool_calls API call - you don't type anything about the tool]
+System: [Returns search results in next message]
+Assistant: "I found 5 functions with 'validate' in their name: validateUser(), validateEmail()..."
 
-When to use MCP tools:
-- When you need current/latest documentation for libraries, frameworks, or APIs
-- When version-specific information is requested
-- When you're unsure about API syntax or recent changes
-- For accurate, up-to-date code examples
+User: "Read the config.py file"
+Assistant: [Makes actual function call to mcp__filesystem__read_file with parameter path="config.py"]
+System: [Returns file contents in next message]
+Assistant: "Looking at config.py, I can see it defines..."
 
-The MCP tools provide more current information than your training data. Use them when appropriate by making actual function calls.
+### ❌ INCORRECT - Never Do This:
+
+User: "Search for validation functions"
+Assistant: "Let me search for that.
+
+mcp__codebase__search_function pattern=\"validate\"
+
+I'll search now..."  ← WRONG! This is text output, not a function call!
+
+User: "Read config.py"
+Assistant: "I'll read that file.
+
+{{"name": "mcp__filesystem__read_file", "arguments": {{"path": "config.py"}}}}
+
+Reading..."  ← WRONG! Don't output JSON as text!
+
+### Key Rules:
+1. **NEVER type the tool name** (like mcp__server__tool_name) in your text response
+2. **NEVER write arguments** (like param="value") in your text response
+3. **NEVER output JSON** representing a tool call
+4. **ALWAYS use the native function calling API** that's built into your response format
+5. After calling a tool, **wait for results** before responding to the user
+
+The function calling API is the ONLY way to use MCP tools. Text output will not work.
 """
         return prompt.strip()
 
-    def fmt_system_prompt(self, prompt):
+    def _analyze_user_intent(self, recent_messages=None):
+        """
+        Analyze recent user messages to determine what capabilities to include in prompt.
+
+        Uses explicit keyword lists (with common variations) to detect user intent.
+        This approach is:
+        - Fast: Simple string matching with no regex overhead
+        - Reliable: Explicit and debuggable
+        - Maintainable: Easy to add/remove keywords
+        - Zero dependencies: No NLP libraries required
+
+        NOTE: For more sophisticated intent detection (e.g., semantic understanding,
+        multi-language support, or handling uncommon word variations), consider using
+        an NLP stemming library like NLTK's PorterStemmer or SnowballStemmer:
+            from nltk.stem import PorterStemmer
+            stemmer = PorterStemmer()
+            stemmer.stem("understanding")  # -> "understand"
+
+        However, for the current use case (keyword matching for prompt composition),
+        explicit keyword lists are faster, more maintainable, and sufficient.
+
+        Returns dict with booleans for each capability:
+        - needs_code_editing: User wants to modify code
+        - needs_shell_commands: User wants to run commands
+        - needs_web_search: User explicitly requested web search
+        - needs_url_scraping: User provided URLs to scrape
+        - needs_mcp: User wants codebase search or docs lookup
+        - is_question: User is asking for explanation/understanding
+        """
+        if recent_messages is None:
+            # Get last few user messages from chat history
+            recent_messages = []
+            for msg in reversed(self.cur_messages[-5:]):  # Last 5 messages
+                if msg.get("role") == "user":
+                    recent_messages.append(msg.get("content", ""))
+
+        combined_text = " ".join(recent_messages).lower()
+
+        # Keywords that indicate pure question/exploration (should EXCLUDE editing)
+        # Explicit variations included for reliability (no regex complexity, no NLP dependencies)
+        question_keywords = [
+            # Explain variations
+            "explain", "explains", "explained", "explaining",
+            # Describe variations
+            "describe", "describes", "described", "describing",
+            # Understand variations (including irregular 'understood')
+            "understand", "understands", "understood", "understanding",
+            # Learn variations
+            "learn", "learns", "learned", "learning",
+            # Teach variations
+            "teach", "teaches", "taught", "teaching",
+            # Show variations
+            "show", "shows", "showed", "showing",
+            # Tell variations
+            "tell", "tells", "told", "telling",
+            # Mean variations
+            "mean", "means", "meant", "meaning",
+            # Explore variations
+            "explore", "explores", "explored", "exploring",
+            # Investigate variations
+            "investigate", "investigates", "investigated", "investigating",
+            # Analyze variations
+            "analyze", "analyzes", "analyzed", "analyzing",
+            # Examine variations
+            "examine", "examines", "examined", "examining",
+            # Review variations
+            "review", "reviews", "reviewed", "reviewing",
+            # Inspect variations
+            "inspect", "inspects", "inspected", "inspecting",
+            # Study variations
+            "study", "studies", "studied", "studying",
+            # Search variations (for codebase exploration)
+            "search", "searches", "searched", "searching",
+            # Question phrases
+            "what does", "what is", "what are", "what's",
+            "why does", "why is", "why are", "why's",
+            "how does", "how do", "how can", "how should", "how to",
+            "tell me about", "help me understand",
+            "meaning of", "purpose of", "definition of"
+        ]
+
+        # Keywords that indicate code editing intent
+        # Explicit variations included for each action verb
+        code_edit_keywords = [
+            # Creation/Addition variations
+            "implement", "implements", "implemented", "implementing",
+            "create", "creates", "created", "creating",
+            "add", "adds", "added", "adding",
+            "make", "makes", "made", "making",
+            "write", "writes", "wrote", "written", "writing",
+            "develop", "develops", "developed", "developing",
+            "introduce", "introduces", "introduced", "introducing",
+            "setup", "setups", "setting up",
+            "configure", "configures", "configured", "configuring",
+            "initialize", "initializes", "initialized", "initializing",
+            # Modification variations
+            "modify", "modifies", "modified", "modifying",
+            "change", "changes", "changed", "changing",
+            "update", "updates", "updated", "updating",
+            "edit", "edits", "edited", "editing",
+            "alter", "alters", "altered", "altering",
+            "adjust", "adjusts", "adjusted", "adjusting",
+            "fix", "fixes", "fixed", "fixing",
+            "repair", "repairs", "repaired", "repairing",
+            "correct", "corrects", "corrected", "correcting",
+            "patch", "patches", "patched", "patching",
+            "refactor", "refactors", "refactored", "refactoring",
+            "restructure", "restructures", "restructured", "restructuring",
+            "reorganize", "reorganizes", "reorganized", "reorganizing",
+            "optimize", "optimizes", "optimized", "optimizing",
+            # Transformation variations
+            "migrate", "migrates", "migrated", "migrating",
+            "port", "ports", "ported", "porting",
+            "convert", "converts", "converted", "converting",
+            "transform", "transforms", "transformed", "transforming",
+            "rewrite", "rewrites", "rewrote", "rewritten", "rewriting",
+            # Removal variations
+            "delete", "deletes", "deleted", "deleting",
+            "remove", "removes", "removed", "removing",
+            "drop", "drops", "dropped", "dropping",
+            "clear", "clears", "cleared", "clearing",
+            # Movement variations
+            "replace", "replaces", "replaced", "replacing",
+            "insert", "inserts", "inserted", "inserting",
+            "move", "moves", "moved", "moving",
+            "rename", "renames", "renamed", "renaming",
+            "relocate", "relocates", "relocated", "relocating"
+        ]
+
+        # Keywords that indicate shell command / execution intent
+        shell_keywords = [
+            # Execution
+            "run", "execute", "start", "launch", "invoke",
+            # Building/Compilation
+            "build", "compile", "bundle", "package",
+            # Package Management
+            "install", "uninstall", "update packages", "upgrade",
+            "npm", "yarn", "pnpm", "pip", "poetry", "pipenv",
+            "cargo", "bundle", "composer", "maven", "gradle",
+            "brew", "apt", "yum", "dnf",
+            # Testing/Quality
+            "test", "pytest", "jest", "mocha", "vitest",
+            "lint", "format", "check", "validate", "verify",
+            "debug", "benchmark", "profile",
+            # Development Servers
+            "serve", "dev server", "watch", "hot reload",
+            # Deployment/Operations
+            "deploy", "publish", "release", "ship",
+            "restart", "stop", "kill", "reload",
+            # Containerization
+            "docker", "docker-compose", "podman", "kubernetes",
+            # Version Control
+            "git", "commit", "push", "pull", "clone",
+            # Environment
+            "production", "staging", "development"
+        ]
+
+        # Keywords that indicate web search intent
+        web_search_keywords = [
+            "search", "google", "find online", "look up", "web search",
+            "search for", "search the web",
+            "latest", "current", "recent", "newest",
+            "recent news", "what's new", "what's happening"
+        ]
+
+        # Keywords that indicate URL scraping intent
+        url_scrape_keywords = [
+            "http://", "https://",
+            "scrape", "fetch from", "get from url",
+            "read from web", "download page",
+            "parse url", "extract from"
+        ]
+
+        # Keywords that indicate MCP/codebase search intent
+        mcp_keywords = [
+            "search codebase", "search code", "find in code", "grep for",
+            "look for", "locate", "where is", "where can i find",
+            "show me", "show file", "read file", "open file",
+            "get documentation", "get docs", "docs for",
+            "find function", "find class", "find definition"
+        ]
+
+        # Check if it's a pure question first
+        is_question = any(kw in combined_text for kw in question_keywords)
+
+        return {
+            # If it's a pure question, exclude code editing unless explicitly mentioned
+            "needs_code_editing": (
+                any(kw in combined_text for kw in code_edit_keywords) and not is_question
+            ),
+            "needs_shell_commands": any(kw in combined_text for kw in shell_keywords),
+            "needs_web_search": any(kw in combined_text for kw in web_search_keywords),
+            "needs_url_scraping": any(kw in combined_text for kw in url_scrape_keywords),
+            "needs_mcp": any(kw in combined_text for kw in mcp_keywords),
+            "is_question": is_question,  # For debugging
+        }
+
+    def fmt_system_prompt(self, prompt, context_analysis=None):
+        """
+        Format system prompt with context-aware capability inclusion.
+
+        Args:
+            prompt: Base prompt template
+            context_analysis: Optional dict from _analyze_user_intent()
+        """
         final_reminders = []
         if self.main_model.lazy:
             final_reminders.append(self.gpt_prompts.lazy_prompt)
@@ -1255,46 +1478,63 @@ The MCP tools provide more current information than your training data. Use them
 
         platform_text = self.get_platform_info()
 
-        if self.suggest_shell_commands:
+        # Analyze user intent if not provided
+        if context_analysis is None:
+            context_analysis = self._analyze_user_intent()
+
+        # Code editing instructions - only include if code changes are requested
+        if context_analysis.get("needs_code_editing", True):
+            code_editing_prompt = getattr(self.gpt_prompts, "code_editing_prompt", "")
+        else:
+            code_editing_prompt = ""
+
+        # Shell commands - include if execution/running is mentioned OR code editing
+        # This allows "run this project" without needing "fix" or "implement"
+        needs_shell = (
+            context_analysis.get("needs_shell_commands", False) or
+            context_analysis.get("needs_code_editing", False)
+        )
+
+        if self.suggest_shell_commands and needs_shell:
             shell_cmd_prompt = self.gpt_prompts.shell_cmd_prompt.format(platform=platform_text)
             shell_cmd_reminder = self.gpt_prompts.shell_cmd_reminder.format(platform=platform_text)
             rename_with_shell = self.gpt_prompts.rename_with_shell
         else:
-            shell_cmd_prompt = self.gpt_prompts.no_shell_cmd_prompt.format(platform=platform_text)
-            shell_cmd_reminder = self.gpt_prompts.no_shell_cmd_reminder.format(
-                platform=platform_text
-            )
+            shell_cmd_prompt = ""
+            shell_cmd_reminder = ""
             rename_with_shell = ""
 
-        # Add MCP tool instructions if enabled
-        if self.enable_mcp and self.mcp_tools:
+        # MCP tools - only include if codebase search or docs lookup is needed
+        if self.enable_mcp and self.mcp_tools and context_analysis.get("needs_mcp", True):
             mcp_tool_prompt = self._format_mcp_tool_prompt()
         else:
             mcp_tool_prompt = ""
 
-        # Add web search instructions
-        web_search_prompt = self.gpt_prompts.web_search_prompt
-        web_search_reminder = self.gpt_prompts.web_search_reminder
+        # Web search - only include if explicitly requested
+        if context_analysis.get("needs_web_search", False):
+            web_search_prompt = self.gpt_prompts.web_search_prompt
+            web_search_reminder = self.gpt_prompts.web_search_reminder
+        else:
+            web_search_prompt = ""
+            web_search_reminder = ""
 
-        # Add URL scraping instructions
-        scrape_url_prompt = self.gpt_prompts.scrape_url_prompt
-        scrape_url_reminder = self.gpt_prompts.scrape_url_reminder
+        # URL scraping - only include if URL is mentioned
+        if context_analysis.get("needs_url_scraping", False):
+            scrape_url_prompt = self.gpt_prompts.scrape_url_prompt
+            scrape_url_reminder = self.gpt_prompts.scrape_url_reminder
+        else:
+            scrape_url_prompt = ""
+            scrape_url_reminder = ""
 
         from aider import debug_logger
         debug_logger.debug("=" * 80)
-        debug_logger.debug("SYSTEM PROMPT: Web search instructions")
-        debug_logger.debug(f"web_search_prompt is empty: {not web_search_prompt}")
-        debug_logger.debug(f"web_search_reminder is empty: {not web_search_reminder}")
-        if web_search_prompt:
-            debug_logger.debug(f"web_search_prompt preview: {web_search_prompt[:200]}")
-        if web_search_reminder:
-            debug_logger.debug(f"web_search_reminder preview: {web_search_reminder[:200]}")
-        debug_logger.debug(f"scrape_url_prompt is empty: {not scrape_url_prompt}")
-        debug_logger.debug(f"scrape_url_reminder is empty: {not scrape_url_reminder}")
-        if scrape_url_prompt:
-            debug_logger.debug(f"scrape_url_prompt preview: {scrape_url_prompt[:200]}")
-        if scrape_url_reminder:
-            debug_logger.debug(f"scrape_url_reminder preview: {scrape_url_reminder[:200]}")
+        debug_logger.debug("SYSTEM PROMPT: Context-aware composition")
+        debug_logger.debug(f"User intent analysis: {context_analysis}")
+        debug_logger.debug(f"Including code editing: {bool(code_editing_prompt)}")
+        debug_logger.debug(f"Including MCP tools: {bool(mcp_tool_prompt)}")
+        debug_logger.debug(f"Including web search: {bool(web_search_prompt)}")
+        debug_logger.debug(f"Including URL scraping: {bool(scrape_url_prompt)}")
+        debug_logger.debug(f"Including shell commands: {bool(shell_cmd_prompt)}")
         debug_logger.debug("=" * 80)
 
         if user_lang:  # user_lang is the result of self.get_user_language()
@@ -1316,6 +1556,7 @@ The MCP tools provide more current information than your training data. Use them
             quad_backtick_reminder=quad_backtick_reminder,
             final_reminders=final_reminders,
             platform=platform_text,
+            code_editing_prompt=code_editing_prompt,
             shell_cmd_prompt=shell_cmd_prompt,
             rename_with_shell=rename_with_shell,
             shell_cmd_reminder=shell_cmd_reminder,
@@ -1974,8 +2215,33 @@ The MCP tools provide more current information than your training data. Use them
 
             if self.stream:
                 mcp_debug("send(): Taking streaming path")
+                mcp_debug("=" * 80)
+                mcp_debug("STREAMING STARTED")
+                mcp_debug("=" * 80)
                 yield from self.show_send_output_stream(completion)
+                mcp_debug("=" * 80)
+                mcp_debug("STREAMING COMPLETED")
+                mcp_debug("=" * 80)
                 mcp_debug("send(): Streaming complete, checking for tool calls")
+
+                # CRITICAL: Finalize the display before executing MCP tools
+                # In pretty mode, mdstream buffers output - we need to flush it
+                if self.show_pretty() and self.mdstream:
+                    mcp_debug("send(): Finalizing mdstream display")
+                    try:
+                        # Force final render with all accumulated content
+                        self.live_incremental_response(final=True)
+                        # Small delay to ensure Rich has time to render
+                        import time
+                        time.sleep(0.1)
+                        mcp_debug("send(): mdstream finalized")
+                    except Exception as e:
+                        mcp_debug(f"send(): Error finalizing mdstream: {e}")
+                        # Continue anyway - the content was streamed, just finalization failed
+
+                # Visual confirmation that streaming is done before MCP execution
+                if self.show_pretty():
+                    self.io.tool_output("\n[Streaming complete - checking for tool calls]\n")  # Clear visual marker
 
                 # First, check for web search requests
                 if self.partial_response_content:
@@ -2030,15 +2296,34 @@ The MCP tools provide more current information than your training data. Use them
                             tool_calls_to_process.append(tool_call)
                 else:
                     # Fallback: Check if LLM output JSON text instead of using tool_calls API
+                    mcp_debug("=" * 80)
+                    mcp_debug("TEXT-BASED TOOL CALL DETECTION STARTING")
+                    mcp_debug("=" * 80)
                     mcp_debug("send(): No tool_calls from API, checking for text-based tool calls")
+                    mcp_debug(f"send(): partial_response_content length: {len(self.partial_response_content) if self.partial_response_content else 0}")
                     if self.partial_response_content:
+                        mcp_debug(f"send(): Content preview (first 500 chars):\n{self.partial_response_content[:500]}")
+                        mcp_debug("send(): Calling parse_text_tool_calls()...")
                         tool_calls_to_process = self.parse_text_tool_calls(self.partial_response_content)
+                        mcp_debug("send(): parse_text_tool_calls() returned")
                         if tool_calls_to_process:
-                            mcp_debug(f"send(): Found {len(tool_calls_to_process)} text-based tool calls")
+                            mcp_debug(f"send(): ✅ Found {len(tool_calls_to_process)} text-based tool calls")
+                            for tc in tool_calls_to_process:
+                                mcp_debug(f"  - Tool: {tc.function.name}")
+                                mcp_debug(f"    Args: {tc.function.arguments}")
+                        else:
+                            mcp_debug("send(): ❌ No text-based tool calls found in content")
+                    mcp_debug("=" * 80)
 
                 if tool_calls_to_process:
+                        mcp_debug("=" * 80)
+                        mcp_debug("MCP TOOL EXECUTION STARTING")
+                        mcp_debug("=" * 80)
                         mcp_debug(f"send(): Processing {len(tool_calls_to_process)} tool calls")
                         mcp_results = self.handle_mcp_tool_calls(tool_calls_to_process)
+                        mcp_debug("=" * 80)
+                        mcp_debug("MCP TOOL EXECUTION COMPLETED")
+                        mcp_debug("=" * 80)
 
                         if mcp_results:
                             mcp_debug("send(): Got MCP results, continuing conversation")
@@ -2066,6 +2351,19 @@ The MCP tools provide more current information than your training data. Use them
                             messages = chunks.all_messages()
 
                             try:
+                                # Show waiting spinner while LLM processes MCP results
+                                if self.show_pretty():
+                                    from aider.waiting import WaitingSpinner
+                                    self.waiting_spinner = WaitingSpinner("Waiting for " + self.main_model.name)
+                                    self.waiting_spinner.start()
+                                    mcp_debug("send(): Started waiting spinner for continuation")
+
+                                # Set up a new mdstream for the continuation
+                                # The previous mdstream was used for the initial response
+                                if self.show_pretty() and self.stream:
+                                    mcp_debug("send(): Creating new mdstream for continuation")
+                                    self.mdstream = self.io.get_assistant_mdstream()
+
                                 # Recursively call send to continue conversation
                                 yield from self.send(messages, functions=self.functions)
                             except Exception as e:
@@ -2274,7 +2572,10 @@ The MCP tools provide more current information than your training data. Use them
 
         Supports multiple formats:
         1. JSON: {"name": "mcp__tool__name", "arguments": {"key": "value"}}
-        2. Function call: mcp__tool__name(key="value", key2="value2")
+        2. YAML-style: name: mcp__tool__name\narguments: {"key": "value"}
+        3. Function call: mcp__tool__name(key="value", key2="value2")
+        4. Command-line: mcp__tool__name --key "value" --key2 "value2"
+        5. Mixed: mcp__tool__name key="value" key2="value2" (no parentheses, no dashes)
 
         Returns:
             List of tool_call objects in the same format as API tool_calls
@@ -2284,19 +2585,28 @@ The MCP tools provide more current information than your training data. Use them
 
         from aider.debug_logger import mcp_debug
 
+        mcp_debug("parse_text_tool_calls() called")
+        mcp_debug(f"  Content length: {len(content)}")
+        mcp_debug(f"  Content preview (first 300 chars):\n{content[:300]}")
+
         tool_calls = []
 
-        # Pattern 1: JSON format
-        # Matches: {"name": "tool_name", "arguments": {...}}
-        json_pattern = r'\{"name":\s*"(mcp__[^"]+)",\s*"arguments":\s*(\{[^}]*\})\}'
-        json_matches = re.finditer(json_pattern, content)
+        # Pattern 0: YAML-style format (new - check this first)
+        # Matches: name: mcp__tool__name\narguments: {...}
+        # Updated to handle extra whitespace and long tool names
+        mcp_debug("Checking for YAML-style tool calls...")
+        yaml_pattern = r'name:\s*(mcp__\w+__[\w-]+)\s*[\r\n]+\s*arguments:\s*(\{.+?\})'
+        yaml_matches = re.finditer(yaml_pattern, content, re.MULTILINE | re.DOTALL)
 
-        for idx, match in enumerate(json_matches):
+        yaml_match_count = 0
+        for idx, match in enumerate(yaml_matches):
+            yaml_match_count += 1
             tool_name = match.group(1)
             arguments_str = match.group(2)
 
-            mcp_debug(f"Detected JSON tool call: {tool_name}")
-            mcp_debug(f"  Arguments: {arguments_str}")
+            mcp_debug(f"✅ Detected YAML-style tool call #{yaml_match_count}: {tool_name}")
+            mcp_debug(f"   Match position: {match.start()}-{match.end()}")
+            mcp_debug(f"   Arguments: {arguments_str}")
 
             tool_call = SimpleNamespace(
                 id=f"text_call_{len(tool_calls)}",
@@ -2308,7 +2618,74 @@ The MCP tools provide more current information than your training data. Use them
             )
             tool_calls.append(tool_call)
 
-        # Pattern 2: Function call format
+        if yaml_match_count == 0:
+            mcp_debug("❌ No YAML-style tool calls found")
+        else:
+            mcp_debug(f"✅ Found {yaml_match_count} YAML-style tool calls")
+
+        # Pattern 1a: JSON format (single-line)
+        # Matches: {"name": "tool_name", "arguments": {...}}
+        mcp_debug("Checking for single-line JSON tool calls...")
+        json_pattern = r'\{"name":\s*"(mcp__[^"]+)",\s*"arguments":\s*(\{[^}]*\})\}'
+        json_matches = re.finditer(json_pattern, content)
+
+        json_match_count = 0
+        for idx, match in enumerate(json_matches):
+            json_match_count += 1
+            tool_name = match.group(1)
+            arguments_str = match.group(2)
+
+            mcp_debug(f"✅ Detected single-line JSON tool call #{json_match_count}: {tool_name}")
+            mcp_debug(f"   Arguments: {arguments_str}")
+
+            tool_call = SimpleNamespace(
+                id=f"text_call_{len(tool_calls)}",
+                type='function',
+                function=SimpleNamespace(
+                    name=tool_name,
+                    arguments=arguments_str
+                )
+            )
+            tool_calls.append(tool_call)
+
+        if json_match_count == 0:
+            mcp_debug("❌ No single-line JSON tool calls found")
+
+        # Pattern 1b: JSON format (multi-line)
+        # Matches: {\n  "name": "tool_name",\n  "arguments": {...}\n}
+        mcp_debug("Checking for multi-line JSON tool calls...")
+        json_multiline_pattern = r'\{\s*"name"\s*:\s*"(mcp__[^"]+)"\s*,\s*"arguments"\s*:\s*(\{.*?\})\s*\}'
+        json_multiline_matches = re.finditer(json_multiline_pattern, content, re.DOTALL)
+
+        json_multiline_count = 0
+        for idx, match in enumerate(json_multiline_matches):
+            json_multiline_count += 1
+            tool_name = match.group(1)
+            arguments_str = match.group(2)
+
+            mcp_debug(f"✅ Detected multi-line JSON tool call #{json_multiline_count}: {tool_name}")
+            mcp_debug(f"   Match position: {match.start()}-{match.end()}")
+            mcp_debug(f"   Arguments preview: {arguments_str[:100]}...")
+
+            # Clean up the arguments (remove extra whitespace/newlines for JSON parsing)
+            arguments_str_clean = re.sub(r'\s+', ' ', arguments_str)
+
+            tool_call = SimpleNamespace(
+                id=f"text_call_{len(tool_calls)}",
+                type='function',
+                function=SimpleNamespace(
+                    name=tool_name,
+                    arguments=arguments_str_clean
+                )
+            )
+            tool_calls.append(tool_call)
+
+        if json_multiline_count == 0:
+            mcp_debug("❌ No multi-line JSON tool calls found")
+        else:
+            mcp_debug(f"✅ Found {json_multiline_count} multi-line JSON tool calls")
+
+        # Pattern 2: Function call format (with parentheses)
         # Matches: mcp__tool__name(arg1="value1", arg2="value2")
         func_pattern = r'(mcp__\w+__[\w-]+)\(([^)]*)\)'
         func_matches = re.finditer(func_pattern, content)
@@ -2343,6 +2720,100 @@ The MCP tools provide more current information than your training data. Use them
                 )
             )
             tool_calls.append(tool_call)
+
+        # Pattern 3: Command-line format with -- flags
+        # Matches: mcp__tool__name --key "value" --key2 value
+        cli_pattern = r'(mcp__\w+__[\w-]+)\s+((?:--[\w-]+\s+(?:"[^"]*"|\'[^\']*\'|\S+)\s*)+)'
+        cli_matches = re.finditer(cli_pattern, content)
+
+        for match in cli_matches:
+            tool_name = match.group(1)
+            args_str = match.group(2)
+
+            mcp_debug(f"Detected CLI-style tool call: {tool_name}")
+            mcp_debug(f"  Raw arguments: {args_str}")
+
+            # Parse command-line style arguments into JSON
+            # Example: --substring_pattern "def github" -> {"substring_pattern": "def github"}
+            args_dict = {}
+
+            # Match --key "value" or --key 'value' or --key value patterns
+            arg_pattern = r'--([\w-]+)\s+(?:"([^"]*)"|\'([^\']*)\'|(\S+))'
+            for arg_match in re.finditer(arg_pattern, args_str):
+                key = arg_match.group(1)
+                # Get value from whichever group matched (quoted or unquoted)
+                value = arg_match.group(2) or arg_match.group(3) or arg_match.group(4)
+                args_dict[key] = value
+
+            arguments_json = json.dumps(args_dict)
+            mcp_debug(f"  Parsed arguments: {arguments_json}")
+
+            tool_call = SimpleNamespace(
+                id=f"text_call_{len(tool_calls)}",
+                type='function',
+                function=SimpleNamespace(
+                    name=tool_name,
+                    arguments=arguments_json
+                )
+            )
+            tool_calls.append(tool_call)
+
+        # Pattern 4: Mixed format (command-line tool name + key=value args without -- or parens)
+        # Matches: mcp__tool__name key="value" key2="value2"
+        # This should match lines that weren't caught by patterns 2 or 3
+        mixed_pattern = r'(mcp__\w+__[\w-]+)\s+((?:[\w-]+=(?:"[^"]*"|\'[^\']*\'|\S+)\s*)+)'
+        mixed_matches = re.finditer(mixed_pattern, content)
+
+        for match in mixed_matches:
+            tool_name = match.group(1)
+            args_str = match.group(2)
+
+            # Skip if this was already matched by function pattern (would have parens)
+            # Check if any existing tool_call has the same name at roughly the same position
+            skip = False
+            for tc in tool_calls:
+                if tc.function.name == tool_name:
+                    skip = True
+                    break
+
+            if skip:
+                continue
+
+            mcp_debug(f"Detected mixed-style tool call: {tool_name}")
+            mcp_debug(f"  Raw arguments: {args_str}")
+
+            # Parse mixed-style arguments into JSON
+            # Example: substring_pattern="def github" -> {"substring_pattern": "def github"}
+            args_dict = {}
+
+            # Match key="value" or key='value' or key=value patterns
+            arg_pattern = r'([\w-]+)=(?:"([^"]*)"|\'([^\']*)\'|(\S+))'
+            for arg_match in re.finditer(arg_pattern, args_str):
+                key = arg_match.group(1)
+                # Get value from whichever group matched (quoted or unquoted)
+                value = arg_match.group(2) or arg_match.group(3) or arg_match.group(4)
+                args_dict[key] = value
+
+            arguments_json = json.dumps(args_dict)
+            mcp_debug(f"  Parsed arguments: {arguments_json}")
+
+            tool_call = SimpleNamespace(
+                id=f"text_call_{len(tool_calls)}",
+                type='function',
+                function=SimpleNamespace(
+                    name=tool_name,
+                    arguments=arguments_json
+                )
+            )
+            tool_calls.append(tool_call)
+
+        # Final summary
+        mcp_debug("=" * 60)
+        mcp_debug(f"parse_text_tool_calls() SUMMARY: Found {len(tool_calls)} total tool calls")
+        if tool_calls:
+            for idx, tc in enumerate(tool_calls):
+                mcp_debug(f"  [{idx+1}] {tc.function.name}")
+        mcp_debug("=" * 60)
 
         return tool_calls if tool_calls else None
 
@@ -2389,8 +2860,14 @@ The MCP tools provide more current information than your training data. Use them
                 spinner = None
                 if self.show_pretty():
                     from aider.waiting import WaitingSpinner
-                    spinner = WaitingSpinner(f"Processing {tool_name}...")
+                    # Create a more descriptive spinner message
+                    server_name = tool_name.split('__')[1] if '__' in tool_name else 'MCP'
+                    tool_short_name = tool_name.split('__')[-1] if '__' in tool_name else tool_name
+                    spinner = WaitingSpinner(f"Calling {server_name} → {tool_short_name}")
                     spinner.start()
+                else:
+                    # Non-pretty mode - show simple status message
+                    self.io.tool_output(f"Calling {tool_name}...")
 
                 try:
                     # Execute tool via MCP client
@@ -2419,29 +2896,32 @@ The MCP tools provide more current information than your training data. Use them
                         # Fallback
                         result_text = str(result)
 
-                    # Display formatted result
+                    # Display formatted result as summary
                     self.io.tool_output(f"✅ Result:")
                     self.io.tool_output(f"{'-'*80}")
 
-                    # Clean up and display the text
+                    # Show summary instead of full output
                     if result_text.strip():
-                        # Truncate very long results
                         lines = result_text.strip().split('\n')
-                        max_lines = 50  # Show first 50 lines max
+                        char_count = len(result_text.strip())
 
-                        if len(lines) > max_lines:
-                            # Show first portion
-                            for line in lines[:max_lines]:
-                                if line.strip():
-                                    self.io.tool_output(line)
-                            # Show truncation message
-                            self.io.tool_output(f"\n... ({len(lines) - max_lines} more lines truncated)")
-                            self.io.tool_output(f"Full result available in chat context for LLM")
+                        # Extract server name for summary
+                        server_name = tool_name.split('__')[1] if '__' in tool_name else 'MCP'
+                        tool_short_name = tool_name.split('__')[-1] if '__' in tool_name else tool_name
+
+                        # Create summary based on tool type
+                        if 'read_file' in tool_short_name or 'read' in tool_short_name:
+                            # For file reading, show lines read
+                            file_path = arguments.get('relative_path') or arguments.get('file_path') or arguments.get('path') or 'file'
+                            self.io.tool_output(f"{server_name} read {len(lines)} lines from {file_path}")
+                        elif 'search' in tool_short_name or 'find' in tool_short_name:
+                            # For search tools, show results count
+                            self.io.tool_output(f"{server_name} found {len(lines)} results")
                         else:
-                            # Show all lines
-                            for line in lines:
-                                if line.strip():
-                                    self.io.tool_output(line)
+                            # Generic summary
+                            self.io.tool_output(f"{server_name} returned {len(lines)} lines ({char_count} characters)")
+
+                        self.io.tool_output(f"(Full result available in chat context for LLM)")
                     else:
                         self.io.tool_output("(No output)")
 
@@ -2567,6 +3047,18 @@ The MCP tools provide more current information than your training data. Use them
                     messages = chunks.all_messages()
 
                     try:
+                        # Show waiting spinner while LLM processes MCP results
+                        if self.show_pretty():
+                            from aider.waiting import WaitingSpinner
+                            self.waiting_spinner = WaitingSpinner("Waiting for " + self.main_model.name)
+                            self.waiting_spinner.start()
+                            mcp_debug("send(): Started waiting spinner for continuation (non-streaming path)")
+
+                        # Set up a new mdstream for the continuation
+                        if self.show_pretty() and self.stream:
+                            mcp_debug("send(): Creating new mdstream for continuation (non-streaming path)")
+                            self.mdstream = self.io.get_assistant_mdstream()
+
                         # Recursively call send to continue conversation
                         yield from self.send(messages, functions=self.functions)
                     except Exception as e:
@@ -2652,11 +3144,13 @@ The MCP tools provide more current information than your training data. Use them
                 mcp_debug(f"Chunk {chunk_count} has no choices, skipping")
                 continue
 
-            if (
-                hasattr(chunk.choices[0], "finish_reason")
-                and chunk.choices[0].finish_reason == "length"
-            ):
-                raise FinishReasonLength()
+            # Check finish_reason
+            if hasattr(chunk.choices[0], "finish_reason") and chunk.choices[0].finish_reason:
+                finish_reason = chunk.choices[0].finish_reason
+                mcp_debug(f"Chunk {chunk_count}: finish_reason = '{finish_reason}'")
+
+                if finish_reason == "length":
+                    raise FinishReasonLength()
 
             # Handle tool_calls (new format)
             try:
@@ -2768,7 +3262,48 @@ The MCP tools provide more current information than your training data. Use them
         self.mdstream.update(show_resp, final=final)
 
     def render_incremental_response(self, final):
-        return self.get_multi_response_content_in_progress()
+        content = self.get_multi_response_content_in_progress()
+        # DON'T filter during streaming - let user see full LLM response
+        # The tool call syntax is useful context for understanding what will execute
+        # content = self.filter_mcp_tool_calls_from_display(content)
+        return content
+
+    def filter_mcp_tool_calls_from_display(self, content):
+        """
+        Remove MCP tool call patterns from displayed content.
+        Tool calls will be executed separately, so we don't want to show the syntax.
+        """
+        import re
+
+        # Pattern 0: Remove any line that starts with just "mcp__" or fragments like "m"
+        # This catches incomplete tool calls that are being streamed
+        fragment_pattern = r'^\s*m(cp__)?[\w_]*\s*$'
+        content = re.sub(fragment_pattern, '', content, flags=re.MULTILINE)
+
+        # Pattern 1: Command-line style with -- flags
+        # Matches: mcp__tool__name --key "value" --key2 value
+        cli_pattern = r'^\s*(mcp__\w+__[\w-]+)\s+((?:--[\w-]+\s+(?:"[^"]*"|\'[^\']*\'|\S+)\s*)+)\s*$'
+        content = re.sub(cli_pattern, '', content, flags=re.MULTILINE)
+
+        # Pattern 2: Function call style (with parentheses)
+        # Matches: mcp__tool__name(key="value", key2="value2")
+        func_pattern = r'^\s*(mcp__\w+__[\w-]+)\(([^)]*)\)\s*$'
+        content = re.sub(func_pattern, '', content, flags=re.MULTILINE)
+
+        # Pattern 3: Mixed format (no -- flags, no parentheses)
+        # Matches: mcp__tool__name key="value" key2="value2"
+        mixed_pattern = r'^\s*(mcp__\w+__[\w-]+)\s+((?:[\w-]+=(?:"[^"]*"|\'[^\']*\'|\S+)\s*)+)\s*$'
+        content = re.sub(mixed_pattern, '', content, flags=re.MULTILINE)
+
+        # Pattern 4: JSON style
+        # Matches: {"name": "mcp__tool__name", "arguments": {...}}
+        json_pattern = r'\{"name":\s*"(mcp__[^"]+)",\s*"arguments":\s*\{[^}]*\}\}'
+        content = re.sub(json_pattern, '', content)
+
+        # Clean up extra blank lines that might result from filtering
+        content = re.sub(r'\n\n\n+', '\n\n', content)
+
+        return content
 
     def remove_reasoning_content(self):
         """Remove reasoning content from the model's response."""

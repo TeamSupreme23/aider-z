@@ -974,14 +974,15 @@ class Model(ModelSettings):
         if functions is not None:
             function = functions[0]
             tools_list.append(dict(type="function", function=function))
+            # Set initial tool choice to force the function
             tool_choice = {"type": "function", "function": {"name": function["name"]}}
 
         # Add MCP tools if provided
         if mcp_tools:
             tools_list.extend(mcp_tools)
-            # If no specific function required, let LLM choose
-            if tool_choice is None:
-                tool_choice = "auto"
+            # When MCP tools are present, override tool_choice to allow LLM to choose
+            # This enables the LLM to select between the forced function and MCP tools
+            tool_choice = "auto"
 
         if tools_list:
             kwargs["tools"] = tools_list
@@ -991,9 +992,14 @@ class Model(ModelSettings):
             # Debug MCP tool setup
             from aider.debug_logger import mcp_debug
             mcp_debug(f"send_completion: Setting up tools for API call")
+            mcp_debug(f"  functions provided: {functions is not None}")
+            mcp_debug(f"  mcp_tools provided: {mcp_tools is not None}")
             mcp_debug(f"  tools_list length: {len(tools_list)}")
             mcp_debug(f"  tool_choice: {tool_choice}")
-            mcp_debug(f"  tools[0] name: {tools_list[0]['function']['name'] if tools_list else 'N/A'}")
+            if tools_list:
+                mcp_debug(f"  First tool: {tools_list[0]['function']['name']}")
+                if len(tools_list) > 1:
+                    mcp_debug(f"  Second tool: {tools_list[1]['function']['name']}")
         if self.extra_params:
             kwargs.update(self.extra_params)
         if self.is_ollama() and "num_ctx" not in kwargs:
