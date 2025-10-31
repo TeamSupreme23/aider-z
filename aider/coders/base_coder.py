@@ -2239,10 +2239,6 @@ The function calling API is the ONLY way to use MCP tools. Text output will not 
                         mcp_debug(f"send(): Error finalizing mdstream: {e}")
                         # Continue anyway - the content was streamed, just finalization failed
 
-                # Visual confirmation that streaming is done before MCP execution
-                if self.show_pretty():
-                    self.io.tool_output("\n[Streaming complete - checking for tool calls]\n")  # Clear visual marker
-
                 # First, check for web search requests
                 if self.partial_response_content:
                     search_performed = self.detect_and_execute_websearch(self.partial_response_content)
