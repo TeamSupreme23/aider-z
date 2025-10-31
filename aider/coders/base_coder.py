@@ -1443,14 +1443,14 @@ The function calling API is the ONLY way to use MCP tools. Text output will not 
             "find function", "find class", "find definition"
         ]
 
-        # Check if it's a pure question first
+        # Check for question and editing keywords
         is_question = any(kw in combined_text for kw in question_keywords)
+        has_code_edit_intent = any(kw in combined_text for kw in code_edit_keywords)
 
         return {
-            # If it's a pure question, exclude code editing unless explicitly mentioned
-            "needs_code_editing": (
-                any(kw in combined_text for kw in code_edit_keywords) and not is_question
-            ),
+            # If explicit code editing keywords present, include editing even if phrased as question
+            # Only exclude editing for pure questions (no editing keywords)
+            "needs_code_editing": has_code_edit_intent or not is_question,
             "needs_shell_commands": any(kw in combined_text for kw in shell_keywords),
             "needs_web_search": any(kw in combined_text for kw in web_search_keywords),
             "needs_url_scraping": any(kw in combined_text for kw in url_scrape_keywords),
