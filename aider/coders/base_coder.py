@@ -1958,6 +1958,34 @@ The function calling API is the ONLY way to use MCP tools. Text output will not 
                     self.reflected_message = lint_errors
                     return
 
+        # Extract shell commands from response even if no edits were made
+        # This handles cases where LLM just suggests commands without code changes
+        if not edited and self.partial_response_content and self.suggest_shell_commands:
+            try:
+                from aider import debug_logger
+                from aider.coders.editblock_coder import find_original_update_blocks
+
+                debug_logger.debug("Extracting shell commands from non-edit response")
+
+                # Extract any shell command blocks from the response
+                blocks = list(find_original_update_blocks(
+                    self.partial_response_content,
+                    self.fence,
+                    self.get_inchat_relative_files(),
+                ))
+
+                # Filter for shell commands (where filename is None)
+                shell_commands = [block[1] for block in blocks if block[0] is None]
+
+                if shell_commands:
+                    debug_logger.debug(f"Found {len(shell_commands)} shell commands in non-edit response")
+                    self.shell_commands.extend(shell_commands)
+                else:
+                    debug_logger.debug("No shell commands found in non-edit response")
+
+            except Exception as e:
+                debug_logger.debug(f"Error extracting shell commands from non-edit response: {e}")
+
         shared_output = self.run_shell_commands()
         if shared_output:
             self.cur_messages += [
