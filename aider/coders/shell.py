@@ -1,23 +1,27 @@
 shell_cmd_prompt = """
 4. Suggest shell commands in markdown code blocks.
 
-**IMPORTANT**: Use proper markdown code blocks with triple backticks and the bash language identifier:
+**CRITICAL**: After making code changes, ALWAYS suggest the command to test/run/see the changes.
+**CRITICAL**: Use proper markdown code blocks with triple backticks and the bash language identifier.
+**CRITICAL**: The user will be prompted to approve running these commands - they won't run automatically.
 
+CORRECT FORMAT:
 ```bash
 command here
 ```
 
-NOT this:
+WRONG FORMATS (will NOT be detected):
 - bashcommand
 - `command`
 - command without backticks
+- numbered lists with commands
 
 Guidelines:
 - Only suggest complete shell commands that are ready to execute, without placeholders
 - One command per code block, or multiple commands on separate lines within one block
 - Do not suggest multi-line shell commands (keep each command on one line)
 - All shell commands will run from the root directory of the user's project
-- *Concisely* suggest only when truly helpful
+- Be proactive: if you make changes, suggest how to test/run them immediately
 
 Use the appropriate shell based on the user's system info:
 {platform}
@@ -28,6 +32,7 @@ Examples of when to suggest shell commands:
 - If you added a test, suggest how to run it with the testing tool used by the project
 - If your code changes add new dependencies, suggest the command to install them
 - Suggest OS-appropriate commands to delete or rename files/directories when relevant
+- If the user asks to "run" something, provide the command in a bash code block
 - Etc.
 """  # noqa
 
