@@ -499,11 +499,18 @@ def find_original_update_blocks(content, fence=DEFAULT_FENCE, valid_fnames=None)
             if i < len(lines) and lines[i].strip().startswith("```"):
                 i += 1  # Skip the closing ```
 
-            shell_cmd = "".join(shell_content)
-            shell_blocks_found.append(shell_cmd)
-            if debug_logger:
-                debug_logger.debug(f"Found shell block at line {i}: {repr(shell_cmd[:100])}")
-            yield None, shell_cmd
+            shell_cmd = "".join(shell_content).strip()
+
+            # Skip if this looks like an MCP tool call (not a real shell command)
+            # MCP tool calls start with mcp__ prefix
+            if not shell_cmd.startswith("mcp__"):
+                shell_blocks_found.append(shell_cmd)
+                if debug_logger:
+                    debug_logger.debug(f"Found shell block at line {i}: {repr(shell_cmd[:100])}")
+                yield None, shell_cmd
+            else:
+                if debug_logger:
+                    debug_logger.debug(f"Skipped MCP tool call in shell block at line {i}: {repr(shell_cmd[:100])}")
             continue
 
         # Check for SEARCH/REPLACE blocks

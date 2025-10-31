@@ -401,6 +401,7 @@ class Coder:
                 self.enable_mcp = False
 
         self.shell_commands = []
+        self.preserved_shell_commands = []
 
         if not auto_commits:
             dirty_commits = False
@@ -872,6 +873,15 @@ class Coder:
         self.lint_outcome = None
         self.test_outcome = None
         self.shell_commands = []
+
+        # Restore preserved shell commands from previous iteration
+        # (e.g., when LLM suggested commands but also asked to add files)
+        if hasattr(self, 'preserved_shell_commands') and self.preserved_shell_commands:
+            from aider import debug_logger
+            debug_logger.debug(f"Restoring {len(self.preserved_shell_commands)} preserved shell commands")
+            self.shell_commands = self.preserved_shell_commands.copy()
+            self.preserved_shell_commands = []
+
         self.message_cost = 0
 
         if self.repo:
@@ -1912,6 +1922,16 @@ The function calling API is the ONLY way to use MCP tools. Text output will not 
         if not interrupted:
             add_rel_files_message = self.check_for_file_mentions(content)
             if add_rel_files_message:
+                # CRITICAL: Don't lose shell commands when adding files!
+                # Save shell commands before returning for file addition
+                from aider import debug_logger
+                if self.shell_commands:
+                    debug_logger.debug(f"Preserving {len(self.shell_commands)} shell commands before file addition")
+                    # Store in a temporary attribute that won't be cleared
+                    if not hasattr(self, 'preserved_shell_commands'):
+                        self.preserved_shell_commands = []
+                    self.preserved_shell_commands.extend(self.shell_commands)
+
                 if self.reflected_message:
                     self.reflected_message += "\n\n" + add_rel_files_message
                 else:
@@ -1985,6 +2005,13 @@ The function calling API is the ONLY way to use MCP tools. Text output will not 
 
             except Exception as e:
                 debug_logger.debug(f"Error extracting shell commands from non-edit response: {e}")
+
+        # Debug: Check shell_commands before calling run_shell_commands
+        from aider import debug_logger
+        debug_logger.debug(f"About to call run_shell_commands()")
+        debug_logger.debug(f"  self.suggest_shell_commands = {self.suggest_shell_commands}")
+        debug_logger.debug(f"  len(self.shell_commands) = {len(self.shell_commands)}")
+        debug_logger.debug(f"  self.shell_commands = {self.shell_commands}")
 
         shared_output = self.run_shell_commands()
         if shared_output:
@@ -3778,12 +3805,19 @@ The function calling API is the ONLY way to use MCP tools. Text output will not 
         return edits
 
     def run_shell_commands(self):
+        from aider import debug_logger
+        debug_logger.debug(f"run_shell_commands() called")
+        debug_logger.debug(f"  self.suggest_shell_commands = {self.suggest_shell_commands}")
+        debug_logger.debug(f"  len(self.shell_commands) = {len(self.shell_commands)}")
+
         if not self.suggest_shell_commands:
+            debug_logger.debug(f"  Returning early: suggest_shell_commands is False")
             return ""
 
         done = set()
         group = ConfirmGroup(set(self.shell_commands))
         accumulated_output = ""
+        debug_logger.debug(f"  Processing {len(self.shell_commands)} shell commands")
         for command in self.shell_commands:
             if command in done:
                 continue

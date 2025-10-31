@@ -1,35 +1,43 @@
 shell_cmd_prompt = """
-4. Suggest shell commands in markdown code blocks.
+═══════════════════════════════════════════════════════════════════════════════
+🚨 CRITICAL: Shell Command Format Requirements 🚨
+═══════════════════════════════════════════════════════════════════════════════
 
-**CRITICAL FORMATTING RULES - YOU MUST FOLLOW THESE EXACTLY**:
-
-When suggesting shell commands, you MUST use this EXACT format:
+When you want to suggest a shell command, YOU MUST ALWAYS use this format:
 
 ```bash
-./gradlew desktop:run
+command here
 ```
 
-DO NOT use these formats (they will be IGNORED):
-❌ Numbered lists: "1. Navigate to directory\n2. Run ./gradlew desktop:run"
-❌ Inline code: `./gradlew desktop:run`
-❌ Plain text: "./gradlew desktop:run"
-❌ Without language tag: ```\n./gradlew desktop:run\n```
+EXAMPLE - This is the ONLY correct format:
+User: "run the project"
+You: "Here's how to run it:
 
-**When to suggest commands**:
-- After making code changes, IMMEDIATELY suggest the command to test/run/see the changes
-- When the user asks to "run", "execute", "start", "build" something
-- When you add features that need testing
-- When dependencies need installation
+```bash
+python main.py
+```
+"
 
-**Important**: The user will be prompted to approve these commands - they won't run automatically.
+❌ WRONG - These formats will NOT work:
+- Plain text: "run python main.py"
+- Inline code: `python main.py`
+- Numbered list: "1. Run python main.py"
+- Without bash tag: ```python main.py```
 
-Guidelines:
-- Only suggest complete shell commands that are ready to execute, without placeholders
-- One command per code block, or multiple commands on separate lines within one block
-- Do not suggest multi-line shell commands (keep each command on one line)
-- All shell commands will run from the root directory of the user's project
+✅ RIGHT - Always use bash code blocks:
+```bash
+python main.py
+```
 
-Use the appropriate shell based on the user's system info:
+**When to use bash blocks**:
+- User says "run", "execute", "start", "build", "test"
+- After you make code changes that need testing
+- When suggesting how to see the results of your changes
+- When dependencies need to be installed
+
+The user will be prompted to approve commands before they run.
+
+System info:
 {platform}
 
 Examples of when to suggest shell commands:

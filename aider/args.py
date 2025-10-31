@@ -827,6 +827,11 @@ def get_parser(default_config_files, git_root):
         help="Path to MCP configuration file (default: ~/.aider.mcp.yaml or ./.aider.mcp.yaml)",
     )
     group.add_argument(
+        "--mcp-install",
+        metavar="SERVER_NAME",
+        help="Install an MCP server and exit (e.g., --mcp-install context7)",
+    )
+    group.add_argument(
         "--fancy-input",
         action=argparse.BooleanOptionalAction,
         default=True,

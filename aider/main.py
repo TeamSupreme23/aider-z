@@ -620,6 +620,37 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
     if args.openai_api_key:
         os.environ["OPENAI_API_KEY"] = args.openai_api_key
 
+    # Handle --mcp-install flag
+    if args.mcp_install:
+        from aider.mcp.installer import MCPInstaller
+        from aider.mcp.registry import MCPRegistry
+
+        try:
+            # Create registry and installer
+            registry = MCPRegistry()
+            installer = MCPInstaller(registry)
+
+            # Install the server
+            io.tool_output(f"Installing MCP server: {args.mcp_install}")
+            success = installer.install(args.mcp_install)
+
+            if success:
+                io.tool_output("\n✅ Installation complete!")
+                io.tool_output(
+                    f"   Run 'aider' to start using the {args.mcp_install} MCP server"
+                )
+                return 0
+            else:
+                io.tool_error("Installation failed")
+                return 1
+
+        except Exception as e:
+            io.tool_error(f"Error installing MCP server: {e}")
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+            return 1
+
     # Handle deprecated model shortcut args
     handle_deprecated_model_args(args, io)
     if args.openai_api_base:
@@ -976,6 +1007,42 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
     # Track auto-commits configuration
     analytics.event("auto_commits", enabled=bool(args.auto_commits))
 
+    # Clear terminal before coder creation
+    try:
+        os.system("clear" if os.name == "posix" else "cls")
+    except Exception:
+        pass
+
+    # Show MCP initialization status if MCP is enabled
+    mcp_status_text = None
+    if args.enable_mcp and io.pretty:
+        mcp_status_text = "Initializing MCP client..."
+        # Display initial banner with "Initializing..." message
+        try:
+            git_info = None
+            if repo and not repo.git_repo_error:
+                tracked_files = len(repo.get_tracked_files())
+                git_info = f".git with {tracked_files} files"
+
+            repo_map_info = None
+            if repo:
+                repo_map_info = f"using {args.map_tokens or map_tokens} tokens, files refresh"
+
+            create_startup_banner(
+                version=__version__,
+                model=main_model.name,
+                weak_model=main_model.weak_model.name if main_model.weak_model else None,
+                edit_format=args.edit_format,
+                git_info=git_info,
+                repo_map_info=repo_map_info,
+                mcp_info=mcp_status_text,
+                console=io.console,
+                accent_color="grey70"  # Grey
+            )
+        except Exception as err:
+            if args.verbose:
+                io.tool_warning(f"Failed to display initial banner: {err}")
+
     try:
         coder = Coder.create(
             main_model=main_model,
@@ -1025,16 +1092,15 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         analytics.event("exit", reason="ValueError during coder creation")
         return 1
 
-    # Clear terminal before showing banner
-    try:
-        os.system("clear" if os.name == "posix" else "cls")
-    except Exception:
-        pass
+    # If MCP was initialized, update the banner with final stats
+    if args.enable_mcp and io.pretty and hasattr(coder, 'mcp_info'):
+        # Clear and redisplay banner with updated MCP info
+        try:
+            os.system("clear" if os.name == "posix" else "cls")
+        except Exception:
+            pass
 
-    # Display startup banner with system information
-    try:
-        if io.pretty:
-            # Prepare banner info
+        try:
             git_info = None
             if repo and not repo.git_repo_error:
                 tracked_files = len(repo.get_tracked_files())
@@ -1051,13 +1117,39 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
                 edit_format=args.edit_format,
                 git_info=git_info,
                 repo_map_info=repo_map_info,
+                mcp_info=coder.mcp_info,
                 console=io.console,
                 accent_color="grey70"  # Grey
             )
-    except Exception as err:
-        # If banner fails, just continue without it
-        if args.verbose:
-            io.tool_warning(f"Failed to display banner: {err}")
+        except Exception as err:
+            if args.verbose:
+                io.tool_warning(f"Failed to update banner: {err}")
+    elif not args.enable_mcp and io.pretty:
+        # Display banner without MCP info (for non-MCP users)
+        try:
+            git_info = None
+            if repo and not repo.git_repo_error:
+                tracked_files = len(repo.get_tracked_files())
+                git_info = f".git with {tracked_files} files"
+
+            repo_map_info = None
+            if repo:
+                repo_map_info = f"using {args.map_tokens or map_tokens} tokens, files refresh"
+
+            create_startup_banner(
+                version=__version__,
+                model=main_model.name,
+                weak_model=main_model.weak_model.name if main_model.weak_model else None,
+                edit_format=args.edit_format,
+                git_info=git_info,
+                repo_map_info=repo_map_info,
+                mcp_info=None,
+                console=io.console,
+                accent_color="grey70"  # Grey
+            )
+        except Exception as err:
+            if args.verbose:
+                io.tool_warning(f"Failed to display banner: {err}")
 
     if return_coder:
         analytics.event("exit", reason="Returning coder object")

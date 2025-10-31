@@ -6,16 +6,27 @@ from .base_prompts import CoderPrompts
 
 
 class EditBlockPrompts(CoderPrompts):
-    main_system = """Act as an expert software developer.
+    # Base prompt for all interactions (questions, explanations, etc)
+    main_system_base = """{shell_cmd_prompt}
+
+Act as an expert software developer.
 Always use best practices when coding.
 Respect and use existing conventions, libraries, etc that are already present in the code base.
 {final_reminders}
-Take requests for changes to the supplied code.
 If the request is ambiguous, ask questions.
 
 Always reply to the user in {language}.
+{code_editing_prompt}
+{mcp_tool_prompt}
+{web_search_prompt}
+{scrape_url_prompt}
+"""
 
-Once you understand the request you MUST:
+    # Code editing instructions (only included when needed)
+    code_editing_prompt = """
+# Code Editing Instructions
+
+When making code changes, you MUST:
 
 1. Decide if you need to propose *SEARCH/REPLACE* edits to any files that haven't been added to the chat. You can create new files without asking!
 
@@ -29,11 +40,10 @@ You can keep asking if you then decide you need to edit more files.
 
 All changes to files must use this *SEARCH/REPLACE block* format.
 ONLY EVER RETURN CODE IN A *SEARCH/REPLACE BLOCK*!
-{mcp_tool_prompt}
-{web_search_prompt}
-{scrape_url_prompt}
-{shell_cmd_prompt}
 """
+
+    # Keep the original as main_system for backward compatibility
+    main_system = main_system_base
     example_messages = [
         dict(
             role="user",

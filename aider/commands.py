@@ -26,6 +26,9 @@ from aider.utils import is_image_file
 
 from .dump import dump  # noqa: F401
 
+# Lazy import for MCP components to avoid circular dependencies
+_mcp_installer = None
+
 try:
     import requests
 except ImportError:
@@ -1790,6 +1793,159 @@ class Commands:
         # Output announcements
         announcements = "\n".join(self.coder.get_announcements())
         self.io.tool_output(announcements)
+
+    def _get_mcp_installer(self):
+        """Lazy load MCP installer to avoid circular dependencies"""
+        global _mcp_installer
+        if _mcp_installer is None:
+            try:
+                from aider.mcp.installer import MCPInstaller
+                from aider.mcp.registry import MCPRegistry
+
+                # Get registry from coder's MCP client
+                if hasattr(self.coder, 'mcp_client') and self.coder.mcp_client:
+                    registry = self.coder.mcp_client.registry
+                else:
+                    # Create a standalone registry
+                    registry = MCPRegistry()
+
+                _mcp_installer = MCPInstaller(registry)
+            except Exception as e:
+                self.io.tool_error(f"Failed to initialize MCP installer: {e}")
+                return None
+        return _mcp_installer
+
+    def cmd_mcp_install(self, args):
+        """Install an MCP server with a single command
+
+        Usage: /mcp-install <server-name> [--api-key KEY] [--no-auto-connect] [-- extra args]
+
+        Examples:
+            /mcp-install context7
+            /mcp-install github --api-key ghp_xxxxx
+            /mcp-install filesystem -- /path/to/allowed/dir
+        """
+        installer = self._get_mcp_installer()
+        if not installer:
+            return
+
+        # Parse arguments
+        parts = args.strip().split()
+        if not parts:
+            self.io.tool_error("Usage: /mcp-install <server-name> [--api-key KEY]")
+            self.io.tool_output("\nUse /mcp-available to see available servers")
+            return
+
+        server_name = parts[0]
+        api_key = None
+        auto_connect = True
+        additional_args = None
+
+        # Parse options
+        i = 1
+        while i < len(parts):
+            if parts[i] == '--api-key' and i + 1 < len(parts):
+                api_key = parts[i + 1]
+                i += 2
+            elif parts[i] == '--no-auto-connect':
+                auto_connect = False
+                i += 1
+            elif parts[i] == '--':
+                # Everything after -- is passed to the server
+                additional_args = parts[i + 1:]
+                break
+            else:
+                i += 1
+
+        # Install the server
+        success = installer.install(
+            server_name,
+            api_key=api_key,
+            auto_connect=auto_connect,
+            additional_args=additional_args
+        )
+
+        if success and auto_connect:
+            self.io.tool_output("\n💡 Tip: Restart aider to connect to the new server")
+            self.io.tool_output("   Or use /mcp-connect to connect now")
+
+    def cmd_mcp_available(self, args):
+        """List all available MCP servers from the registry
+
+        Usage: /mcp-available [--installed-only]
+        """
+        installer = self._get_mcp_installer()
+        if not installer:
+            return
+
+        show_installed_only = '--installed-only' in args
+
+        servers = installer.list_available()
+
+        if show_installed_only:
+            servers = [s for s in servers if s['installed']]
+
+        if not servers:
+            if show_installed_only:
+                self.io.tool_output("No MCP servers installed yet")
+                self.io.tool_output("\nUse /mcp-available to see all available servers")
+            else:
+                self.io.tool_output("No MCP servers available")
+            return
+
+        # Group by installed status
+        installed = [s for s in servers if s['installed']]
+        available = [s for s in servers if not s['installed']]
+
+        if installed:
+            self.io.tool_output("📦 Installed MCP Servers:\n")
+            for server in sorted(installed, key=lambda x: x['name']):
+                self.io.tool_output(f"  ✅ {server['name']:<20} - {server['description']}")
+                if server['requires_api_key']:
+                    self.io.tool_output(f"     (Requires API key)")
+            self.io.tool_output("")
+
+        if not show_installed_only and available:
+            self.io.tool_output("📋 Available MCP Servers:\n")
+            for server in sorted(available, key=lambda x: x['name']):
+                key_marker = "🔑 " if server['requires_api_key'] else "   "
+                self.io.tool_output(
+                    f"  {key_marker}{server['name']:<20} - {server['description']}"
+                )
+
+            self.io.tool_output("\n💡 Install with: /mcp-install <name>")
+            self.io.tool_output("   Example: /mcp-install context7")
+
+    def cmd_mcp_discover(self, args):
+        """Auto-discover installed MCP servers on your system
+
+        Usage: /mcp-discover
+        """
+        installer = self._get_mcp_installer()
+        if not installer:
+            return
+
+        discovered = installer.discover()
+
+        if discovered:
+            self.io.tool_output("\n💡 Found MCP packages installed globally")
+            self.io.tool_output("   Add them manually to .aider.mcp.yaml to use")
+
+    def cmd_mcp_uninstall(self, args):
+        """Uninstall an MCP server
+
+        Usage: /mcp-uninstall <server-name>
+        """
+        installer = self._get_mcp_installer()
+        if not installer:
+            return
+
+        server_name = args.strip()
+        if not server_name:
+            self.io.tool_error("Usage: /mcp-uninstall <server-name>")
+            return
+
+        installer.uninstall(server_name)
 
     def cmd_copy_context(self, args=None):
         """Copy the current chat context as markdown, suitable to paste into a web UI"""

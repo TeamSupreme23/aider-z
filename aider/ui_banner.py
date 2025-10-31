@@ -105,6 +105,7 @@ def create_startup_banner(
     edit_format: str = None,
     git_info: str = None,
     repo_map_info: str = None,
+    mcp_info: str = None,
     console: Console = None,
     accent_color: str = "grey70"  # Grey
 ) -> None:
@@ -120,6 +121,7 @@ def create_startup_banner(
         edit_format: Edit format being used
         git_info: Git repository information
         repo_map_info: Repository map information
+        mcp_info: MCP initialization information (servers and tools)
         console: Rich Console instance
         accent_color: Accent color for banner (hex code or color name)
     """
@@ -158,6 +160,9 @@ def create_startup_banner(
 
     if repo_map_info:
         left_info.append(("Repo-map", repo_map_info))
+
+    if mcp_info:
+        left_info.append(("MCP", mcp_info))
 
     # Prepare right side: Tips
     right_tips = [
