@@ -7,6 +7,9 @@ Provides async-to-sync bridge for integration with Aider's synchronous codebase.
 
 import asyncio
 import logging
+import os
+import subprocess
+import sys
 from typing import Dict, List, Any, Optional
 from functools import wraps
 
@@ -129,25 +132,80 @@ class MCPServerConnection:
         args = self.config.get('args', [])
         env = self.config.get('env', {})
 
+        # Suppress MCP server logging by setting environment variables
+        # Merge with user-provided env, but our logging settings take precedence
+        merged_env = os.environ.copy()
+        if env:
+            merged_env.update(env)
+        # Set logging to CRITICAL to suppress INFO/ERROR messages
+        merged_env.update({
+            'PYTHONUNBUFFERED': '1',  # Disable Python buffering
+            'LOG_LEVEL': 'CRITICAL',
+            'SERENA_LOG_LEVEL': 'CRITICAL',
+            'LOGLEVEL': 'CRITICAL',
+        })
+        env = merged_env
+
         if not command:
             raise MCPConnectionError(
                 self.server_name,
                 "No command specified for stdio transport"
             )
 
+        # Expand environment variables in args (like ${PWD})
+        expanded_args = []
+        for arg in args:
+            if isinstance(arg, str):
+                # Replace ${VAR} and $VAR patterns
+                import re
+                def expand_var(match):
+                    var_name = match.group(1) or match.group(2)
+                    return os.environ.get(var_name, match.group(0))
+
+                # Handle both ${VAR} and $VAR patterns
+                expanded = re.sub(r'\$\{([^}]+)\}|\$([A-Z_][A-Z0-9_]*)', expand_var, arg)
+
+                # Special handling for $PWD - use current working directory
+                if '${PWD}' in arg or '$PWD' in arg:
+                    expanded = expanded.replace('${PWD}', os.getcwd()).replace('$PWD', os.getcwd())
+
+                expanded_args.append(expanded)
+            else:
+                expanded_args.append(arg)
+
         # Create server parameters
         server_params = StdioServerParameters(
             command=command,
-            args=args,
-            env=env if env else None,
+            args=expanded_args,
+            env=env,  # Use merged env with logging suppression
         )
 
-        # Connect - properly manage async context
-        self._stdio_context = stdio_client(server_params)
-        read, write = await self._stdio_context.__aenter__()
-        self.session = ClientSession(read, write)
-        await self.session.__aenter__()
-        await self.session.initialize()
+        # Suppress stderr output from MCP server subprocess
+        # The MCP SDK uses asyncio subprocess creation, so we need to redirect
+        # stderr at the file descriptor level to catch subprocess output
+
+        # Save original stderr
+        original_stderr_fd = os.dup(sys.stderr.fileno())
+
+        # Open /dev/null for writing
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+
+        try:
+            # Redirect stderr file descriptor to /dev/null
+            # This catches subprocess stderr at the OS level
+            os.dup2(devnull_fd, sys.stderr.fileno())
+
+            # Connect - properly manage async context
+            self._stdio_context = stdio_client(server_params)
+            read, write = await self._stdio_context.__aenter__()
+            self.session = ClientSession(read, write)
+            await self.session.__aenter__()
+            await self.session.initialize()
+        finally:
+            # Restore original stderr
+            os.dup2(original_stderr_fd, sys.stderr.fileno())
+            os.close(original_stderr_fd)
+            os.close(devnull_fd)
 
     async def _connect_sse(self):
         """Connect using SSE transport."""
@@ -194,7 +252,25 @@ class MCPServerConnection:
 
         try:
             # List tools from server
-            tools_response = await self.session.list_tools()
+            if self.session is None:
+                raise MCPConnectionError(
+                    self.server_name,
+                    "Session is None - connection may have failed"
+                )
+
+            list_tools_method = self.session.list_tools()
+            if list_tools_method is None:
+                raise MCPConnectionError(
+                    self.server_name,
+                    "list_tools() returned None - session may not be properly initialized"
+                )
+
+            tools_response = await list_tools_method
+
+            if tools_response is None:
+                logger.warning(f"No tools response from {self.server_name}")
+                self.tools = []
+                return
 
             # Convert to MCPToolWrapper instances
             self.tools = []
@@ -253,9 +329,33 @@ class MCPServerConnection:
 
         try:
             # Call the tool with unprefixed name
+            # stderr is already suppressed via server_params at connection time
             result = await self.session.call_tool(unprefixed_name, arguments)
+
+            # Check if result contains error messages from Serena
+            # Serena sometimes returns errors as successful results
+            if result and hasattr(result, 'content'):
+                for content_item in result.content:
+                    if hasattr(content_item, 'text'):
+                        text = content_item.text
+                        # Detect Serena's "answer too long" error
+                        if 'answer is too long' in text.lower():
+                            # Extract the character count and suggestion
+                            raise MCPToolError(
+                                tool_name,
+                                f"ERROR: {text}\n\n"
+                                "SUGGESTION: Try narrowing your search with:\n"
+                                "  - More specific paths_include_glob pattern\n"
+                                "  - More specific substring_pattern\n"
+                                "  - Use find_symbol instead for specific function names\n"
+                                "  - Use get_symbols_overview for high-level overview"
+                            )
+
             return result
 
+        except MCPToolError:
+            # Re-raise our custom error
+            raise
         except Exception as e:
             logger.error(f"Tool execution failed: {tool_name} on {self.server_name}: {e}")
             raise MCPToolError(tool_name, original_error=e)
@@ -300,9 +400,17 @@ class MCPClientManager:
             try:
                 await self.connect_server(server_name)
             except Exception as e:
-                logger.warning(
-                    f"Failed to auto-connect to {server_name}: {e}"
-                )
+                # Only log if server actually failed to connect
+                # (Check if it's in connections after the attempt)
+                if server_name not in self.connections:
+                    logger.warning(
+                        f"Failed to auto-connect to {server_name}: {e}"
+                    )
+                else:
+                    # Connection succeeded despite the exception
+                    logger.debug(
+                        f"Auto-connect to {server_name} succeeded after handling: {e}"
+                    )
 
         logger.info(
             f"MCP initialization complete. "
