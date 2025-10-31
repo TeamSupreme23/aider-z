@@ -1,27 +1,33 @@
 shell_cmd_prompt = """
 4. Suggest shell commands in markdown code blocks.
 
-**CRITICAL**: After making code changes, ALWAYS suggest the command to test/run/see the changes.
-**CRITICAL**: Use proper markdown code blocks with triple backticks and the bash language identifier.
-**CRITICAL**: The user will be prompted to approve running these commands - they won't run automatically.
+**CRITICAL FORMATTING RULES - YOU MUST FOLLOW THESE EXACTLY**:
 
-CORRECT FORMAT:
+When suggesting shell commands, you MUST use this EXACT format:
+
 ```bash
-command here
+./gradlew desktop:run
 ```
 
-WRONG FORMATS (will NOT be detected):
-- bashcommand
-- `command`
-- command without backticks
-- numbered lists with commands
+DO NOT use these formats (they will be IGNORED):
+❌ Numbered lists: "1. Navigate to directory\n2. Run ./gradlew desktop:run"
+❌ Inline code: `./gradlew desktop:run`
+❌ Plain text: "./gradlew desktop:run"
+❌ Without language tag: ```\n./gradlew desktop:run\n```
+
+**When to suggest commands**:
+- After making code changes, IMMEDIATELY suggest the command to test/run/see the changes
+- When the user asks to "run", "execute", "start", "build" something
+- When you add features that need testing
+- When dependencies need installation
+
+**Important**: The user will be prompted to approve these commands - they won't run automatically.
 
 Guidelines:
 - Only suggest complete shell commands that are ready to execute, without placeholders
 - One command per code block, or multiple commands on separate lines within one block
 - Do not suggest multi-line shell commands (keep each command on one line)
 - All shell commands will run from the root directory of the user's project
-- Be proactive: if you make changes, suggest how to test/run them immediately
 
 Use the appropriate shell based on the user's system info:
 {platform}
